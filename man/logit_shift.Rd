@@ -45,7 +45,7 @@ calib <- tibble::tibble(
   turnout_target = c(0.65, 0.55)
 )
 
-# Compute logit shifts for both outcomes using tidyselect syntax
+# Compute logit shifts for both outcomes
 logit_shift(
   ps_table = ps,
   vars = c(pred_vote, pred_turnout),
@@ -54,4 +54,5 @@ logit_shift(
   calib_target = calib,
   calib_vars = c(vote_target, turnout_target)
 )
+
 }

@@ -4,7 +4,6 @@
 library(tidybayes)
 
 
-
 ## The "logit shift" is used to calibrate turnout/vote share estimates.
 ## It takes individual-level turnout probabilities, then applies a constant
 ## additive shift on the logit scale such that the average transformed turnout
@@ -145,6 +144,9 @@ logit_shift_single = function(ps_table,
 #' @return A data frame with logit shifts for each prediction variable and geography.
 #' @export
 #'
+#' @importFrom tibble tibble
+#' @importFrom dplyr mutate select filter summarise rename left_join across any_of `%>%` bind_rows bind_cols
+#'
 #' @examples
 #' # Example poststratification table
 #' ps <- tibble::tibble(
@@ -268,6 +270,7 @@ calibrate_preds <- function(ps_table, shifts, preds, geography,
 #'   if tidy = FALSE.
 #' @param draw_ids An integer vector specifying the posterior draws to be used.
 #'   If NULL (the default), all draws are used.
+#' @importFrom tidybayes spread_draws
 get_re_covs <- function(mod, group,
                         tidy = FALSE,
                         outcome_order = NULL,
