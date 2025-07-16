@@ -7,7 +7,7 @@
 normalize_preds(preds, vars, constraints = rep(1, length(vars)))
 }
 \arguments{
-\item{preds}{A $D \times N \times K$ array or an $N \times K$ data frame
+\item{preds}{A \eqn{D \times N \times K} array or an \eqn{N \times K} data frame
 storing predictions from the poststratification table to be normalized.
 If an array, the first index stores the draw number (e.g. from the posterior),
 the second indexes rows in the poststratification table, and the third indexes
@@ -19,7 +19,7 @@ columns.}
 what the parameters must sum to. Alternatively, a list of the same length
 as \code{vars}, each element of which is a numeric vector that specifies what
 each row must sum to. Each element of this list must be the same length as
-the number of rows in \code{preds} (i.e. $N$). Defaults to 1.}
+the number of rows in \code{preds} (i.e. \eqn{N}). Defaults to 1.}
 }
 \description{
 Rescales predictions of categorical variables to sum to a particular

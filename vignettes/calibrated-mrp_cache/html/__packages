@@ -1,0 +1,13 @@
+calibratedMRP
+fixest
+lubridate
+Rcpp
+brms
+future
+furrr
+tidyr
+dplyr
+ggplot2
+modelsummary
+StanHeaders
+rstan

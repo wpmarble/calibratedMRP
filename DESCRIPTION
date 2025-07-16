@@ -2,21 +2,28 @@ Package: calibratedMRP
 Title: Calibrated Multilevel Regression and Poststratification
 Version: 0.0.0.9000
 Authors@R: 
-    person("William", "Marble", , "marble.will at gmail.com", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0001-9352-5540"))
+    person("William", "Marble", , "marble.will@gmail.com", role = c("aut", "cre"), comment = c(ORCID = "0000-0001-9352-5540"))
 Description: Provides tools for small area estimation using multilevel 
     regression and poststratification (MRP). Provides a user-friendly interface
     implementing an intercept correction to ensure model-based estimates match 
     known population margins. Estimates of other quantities are updated in light
     of the calibration using methods in Marble and Clinton (2024).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Suggests: 
+    knitr,
+    rmarkdown,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 Imports: 
     brms,
-    dplyr
+    dplyr,
+    MASS,
+    purrr,
+    rlang,
+    tibble,
+    tidybayes,
+    tidyselect
+VignetteBuilder: knitr

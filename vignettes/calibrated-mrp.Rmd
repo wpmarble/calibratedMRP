@@ -1,0 +1,466 @@
+---
+title: "Calibrated MRP Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Calibrated MRP Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup, message=FALSE, warning=FALSE}
+library(calibratedMRP)
+library(fixest)
+library(lubridate)
+library(brms)
+library(furrr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(modelsummary)
+
+set.seed(1234)
+
+# for parallel computation
+plan(multisession, workers = 4)
+options(future.globals.maxSize = 3e3 * 1024^2) # 3GB memory for `future`
+
+# ggplot setup
+theme_set(theme_classic() + 
+            theme(axis.text = element_text(size = 14), 
+                  title = element_text(size = 16),
+                  strip.text = element_text(size = 16),
+                  legend.text = element_text(size = 14)))
+```
+
+# Introduction
+
+In this vignette, we will estimate a calibrated multilevel regression and poststratification (MRP) model using the `calibratedMRP` package. We will use a 2022 survey of American adults to jointly model beliefs about the legitimacy of Joe Biden's presidency, perceptions of election fairness, approval of Biden's job performance, and 2020 presidential vote choice. We will then poststratify to county-level population data and calibrate our estimates to known 2020 presidential vote shares at the county level.
+
+We'll start by loading the data and calculating the raw survey percentages. We'll compare the recalled 2020 vote to the known county-level results to illustrate the need for calibration. Then we'll fit a multivariate Bayesian hierarchical model using `brms`, generate poststratified predictions, and apply both the plug-in and full Bayes calibration procedures.
+
+## Load Data
+
+The file `2022-survey.rdata` includes three objects:
+
+* `surv` is a data frame of survey data collected in fall 2022 via SurveyMonkey.
+* `ps_cty` is a poststratification table with county-level population counts for cells defined by combinations of age group, education level, race, and gender. It also includes some contextual variables. County-level contextual variables include share of the population that is non-white, share Hispanic/Latino, share with a college degree, median income, and election results from 2020. Variables ending in `_z` are standardized versions of the original variables.
+* `targets` is a data frame that includes county-level election results from 2020 which we will use as calibration targets.
+
+It is important to note that the demographic and geographic variable names and levels in `surv` and `ps_cty` are identical. 
+
+```{r load-data, cache=TRUE}
+load("data/2022-survey.rdata")
+glimpse(surv)
+glimpse(targets)
+glimpse(ps_cty)
+```
+
+## Data Prep
+
+As data prep, we join the contextual covariates from `ps_cty` to the survey data `surv`. We also generate a few group-level variables indicating demographic interactions in both the survey data and the poststratification table. 
+
+```{r prep-survey-data}
+# join contextual covariates
+surv <- left_join(surv, 
+                  ps_cty %>% 
+                    select(countyfips, census.region, ends_with("z")) %>% 
+                    distinct(),
+                  by = "countyfips")
+
+# generate demographic interactions
+surv <- surv %>% 
+  mutate(nonwhite = as.integer(race != "white"),
+         race_educ = paste0(race, "_", educ),
+         nonwhite_educ_agegrp = paste0(nonwhite, "_", educ, "_", agegrp))
+ps_cty <- ps_cty %>% 
+   mutate(nonwhite = as.integer(race != "white"),
+         race_educ = paste0(race, "_", educ),
+         nonwhite_educ_agegrp = paste0(nonwhite, "_", educ, "_", agegrp))
+```
+
+## Data Description
+
+We are interested in three questions ask on this survey:
+
+* `biden_legitimate`: Binary variable indicating belief that Joe Biden is the legitimate president.
+* `biden_appr`: Binary variable indicating approval of Joe Biden's job performance.
+* `presvote2020_twoparty`: Two-party vote choice in the 2020 presidential election, coded as a binary variable for Biden (1) vs. Trump (0).
+
+First, we calculate raw survey means at the state level and, for the 2020 vote recall question, compare it to the known state-level results from the 2020 presidential election.
+```{r raw-survey-means}
+svy_means <- surv %>%
+  summarise(across(c(biden_legitimate, biden_appr, presvote2020_twoparty), 
+                     ~ mean(.x, na.rm = TRUE)),
+            .by = state)
+state_res <- ps_cty %>% 
+  distinct(state, st_demvs_2020) %>% 
+  rename(true_2020 = st_demvs_2020)
+svy_means <- left_join(svy_means, state_res, by = "state")
+```
+
+
+Next, we visualize the survey estimates of the 2020 two-party vote share against the known state-level results. The grey line is the 45-degree line. There are significant discrepancies due to a combination of survey bias and sampling variance. In general, the survey substantially overrepresents Biden voters, as indicated by most points lying above the 45-degree line.
+
+Intuitively, this suggests that we should expect the survey estimates of Biden's legitimacy and approval to be biased upwards as well, since these are correlated with vote choice.
+
+```{r, fig.width=6, fig.height=4, echo=FALSE, message=FALSE}
+ggplot(svy_means) + 
+  aes(x = true_2020, y = presvote2020_twoparty, label = state) + 
+  geom_abline(slope = 1, intercept = 0, colour = "grey") +
+  geom_text() + 
+  scale_x_continuous(labels = scales::percent, limits = c(.2, 1)) +
+  scale_y_continuous(labels = scales::percent, limits = c(.2, 1)) +
+  labs(x = "2020 Biden Two-Party Vote Share",
+       y = "Survey Estimate",
+       title = "State-Level Summary of\n2020 Biden Vote Share")
+```
+
+
+To see this, we can compare the correlation between the 2020 vote recall and the other two outcomes in the survey, conditional on state and other demographics. 
+
+```{r}
+
+m1 <- feols(biden_legitimate ~ presvote2020_twoparty + agegrp + race + gender + educ | state, data = surv) 
+m2 <- feols(biden_appr       ~ presvote2020_twoparty + agegrp + race + gender + educ | state, data = surv)
+modelsummary(list(`Biden Legitimate` = m1, `Biden Approval` = m2), 
+             coef_map = c("presvote2020_twoparty" = "2020 Vote Recall"), 
+              add_rows = tibble::tibble(
+                term = c("Demographic Controls", "State FEs"),
+                `m1` = c("✓", "✓"),
+                `m2` = c("✓", "✓")
+              ),
+             gof_omit = "^(?!(Num\\.obs|R2|R2_within))")
+```
+
+
+
+
+# Fit Multilevel Model
+
+
+## Model Overview 
+
+The first step of the `calibratedMRP` procedure is to fit a multilevel model with a multivariate outcome. Formally, the model is specified as follows. Let $y_{i}^j \in \{0, 1\}$ indicate respondent $i$'s response to question $j$ (where $j = 1, 2, 3$ for Biden legitimacy, approval, and 2020 vote recall, respectively). Each respondent $i$ falls into a poststratification cell, denoted $c[i]$, that indicates the demographic group and location of the respondent. The geography for cell $c$ is denoted by $g[c]$.
+
+The model is a series of logit regressions with random effects that are allowed to correlate across outcomes:
+
+$$
+\begin{align}
+  y_i^j &\sim \text{Bernoulli}(\theta_{c[i]}^j) \\
+  \theta_c^j &= \text{logit}^{-1}(\alpha_{g[c]} + X_{c[i]}'\beta^j  +  Z_{g[c]}' \gamma^j) \\
+  (\alpha_g^1, \alpha_g^2, \alpha^3) &\sim \text{MVN}(0, \Sigma)
+\end{align}
+$$
+
+The second line specifies the logit link function, where $\alpha_{g[c]}$ is a geography-level random intercept for poststratification cell $c$. The other terms are demographic predictors $X_c$ (e.g., age, race, education) and geography-level predictors $Z_{g[c]}$ (e.g., area median income, percent of the geography that is non-White). The third line specifies that the group-level intercepts are jointly normally distributed with mean 0 and covariance matrix $\Sigma$, which will be estimated. This covariance matrix is key to the calibration procedure. If the off-diagonal entries of $\Sigma$ are positive, it indicates that there is a positive correlation between the geography-level intercepts across outcomes, after accounting for demographics ($X$) and local compositional differences ($Z$).
+
+
+## Construct `brms` Formula
+
+We use the `brms` interface to the Stan modeling language to estimate the model. The `calibratedMRP` package allows you to either specify your own `brms` formula, or you can use the `fit_model()` helper function. We first show how to specify and estimate the model directly using `brms` then demonstrate how to use the `fit_model()` function to fit the same model.
+
+We make use of two features of the `brms` modeling syntax. First, we use the `mvbind()` function to specify a multivariate response vector. Second, we use the random effects syntax `(1 | name | grouping_variable)` to specify random intercepts for each level of `grouping_variable` that are allowed correlated across outcomes.[^1] 
+
+
+[^1]: See the [`brms` vignette](https://cran.r-project.org/web/packages/brms/vignettes/brms_multivariate.html) on multivariate response models for more details.
+
+Our model includes the following predictors. 
+
+**Individual-Level Predictors.** The individual-level predictors include gender, age group (entered as a linear predictor),  race, and education. We also include random intercepts for age group, combinations of age and education, and combinations of white/nonwhite $\times$ education $\times$ age group.[^2]
+
+**State-Level Predictors.** The state-level predictors include the Democratic vote share in the 2020 presidential election and we include random intercepts for census region and state. 
+
+**County-Level Predictors.** The county-level predictors include the percentage of the population that is non-White, percent Hispanic, percent with a college degree, median income, and Democratic vote share in 2020. Finally, we include a random intercept for county.
+
+
+[^2]: The inclusion of a linear predictor for age group along with random effects for age group has the effect of regularizing the age effect toward a monotonic function, while allowing for nonlinearities. See [Ghitza and Gelman (2013)](https://sites.stat.columbia.edu/gelman/research/published/misterp.pdf) (p. 766) for more details on this approach.
+
+```{r define-formula}
+formula <- bf(
+  mvbind(biden_legitimate, biden_appr, presvote2020_twoparty) ~
+
+    # individual-level predictors
+    gender + as.integer(agegrp) + (1 | age | agegrp) + race + educ +
+    (1 | raceeduc | race_educ) + (1 | educagewhite | nonwhite_educ_agegrp) +
+
+    # state-level predictors
+    st_demvs_2016_z + (1 | censreg | census.region) + (1 | state | state) +
+
+    # county-level predictors
+    cty_pct_nonwhite_z +  cty_pct_hispanic_z +
+    cty_pct_college_z + cty_med_inc_z + cty_dem2020_z +
+    (1 | c | countyfips)
+)
+
+```
+
+
+## Estimate Multilevel Model
+
+The next step is to estimate the multilevel model using the `brm` function from `brms`, which compiles Stan code and estimates the model in Stan using either the `rstan` or `cmdstanr` backend. Stan provides several methods of fitting the model, including Hamiltonian Monte Carlo (HMC) and variational inference.
+
+We also specify $\text{Normal}(0, 5^2)$ priors for the fixed-effects regression coefficients and accept the following `brms` default priors for the other parameters:
+
+$$
+\begin{align*}
+  \Sigma &= \text{diag}(\sigma_1, \dots, \sigma_J)' \Omega \text{diag}(\sigma_1, \dots, \sigma_J)  \\
+  \sigma_j &\sim \text{Student-$t$}(3, 0, 2.5) \\
+  \Omega &\sim \text{LKJ}(1) 
+\end{align*}
+$$
+In this specification the covariance matrix $\Sigma$ is represented as a Cholesky factorization, where the standard deviations of the random effects $\sigma_j$ are given Student-$t$ priors and the correlation matrix $\Omega$ is given a uniform LKJ prior. 
+
+
+```{r fit-model, cache=TRUE}
+priors <- prior(normal(0, 5), class = b)
+
+# Fit model
+mod <- brm(formula = formula,
+           data = surv,
+           family = bernoulli,
+           prior = priors,
+           chains = 4, cores = 4,
+           iter = 100,
+           backend = "cmdstanr",
+           # adapt_delta = .9,
+           max_treedepth = 12)
+```
+
+We check some basic MCMC diagnostics to check whether the model has converged and the effective sample size of posterior draws is sufficient. 
+
+```{r mcmc-diagnostics}
+rhats <- rhat(mod)
+if (max(rhats) > 1.02) rlang::warn("Some parameters have r-hat values above 1.02")
+rstan::check_hmc_diagnostics(mod$fit)
+suppressWarnings(neff <- neff_ratio(mod))
+if (mean(neff) < 0.5 || min(neff) < 0.1) rlang::warn("Some parameters have low neff ratios")
+```
+
+<!-- # Fit model -->
+
+<!-- ```{r fit-model} -->
+
+<!-- # Specify model formula -->
+<!-- form <- bf( -->
+<!--   # outcomes -->
+<!--   mvbind(biden_legitimate_irt, election_fair_irt, biden_appr_irt, presvote2020_twoparty) ~ -->
+
+<!--     # individual-level predictors -->
+<!--     gender + as.integer(agegrp) + (1 | age | agegrp) + race + educ + -->
+<!--     (1 | raceeduc | race_educ) + (1 | educagewhite | nonwhite_educ_agegrp) +  -->
+
+<!--     # state-level predictors -->
+<!--     st_demvs_2020_z + (1 | censreg | census.region) + (1 | state | state) +  -->
+
+<!--     # county-level predictors -->
+<!--     cty_pct_nonwhite_z +  cty_pct_hispanic_z + -->
+<!--     cty_pct_college_z + cty_med_inc_z + cty_dem2020_z + -->
+<!--     (1 | c | countyfips)  -->
+<!-- ) -->
+<!-- priors <- prior(normal(0, 5), class = b) -->
+
+
+<!-- ## Fit model  -->
+<!-- mod <- brm(formula = form,  -->
+<!--            data = sm_fit, -->
+<!--            family = bernoulli, -->
+<!--            prior = priors, -->
+<!--            chains = 4, cores = 4, -->
+<!--            iter = 100, -->
+<!--            backend = "cmdstanr", -->
+<!--            adapt_delta = .98, -->
+<!--            max_treedepth = 12) -->
+
+<!-- # MCMC/HMC diagnostics -->
+<!-- rhats <- rhat(mod) -->
+<!-- if (max(rhats) > 1.02) rlang::warn("Some parameters have r-hat values above 1.02") -->
+<!-- rstan::check_hmc_diagnostics(mod$fit) -->
+<!-- neff <- neff_ratio(mod) -->
+<!-- if (mean(neff) < 0.5 || min(neff) < 0.1) rlang::warn("Some parameters have low neff ratios") -->
+<!-- ``` -->
+
+
+
+<!-- # Generate cell-level estimates -->
+
+<!-- ```{r cell-estimates} -->
+
+<!-- ### Step 0. Define a subset of posterior draws to use. -------------------- -->
+<!-- # Should use all draws but this is less memory/computationally intensive.  -->
+<!-- draw_ids <- sample(1:ndraws(mod), 100) -->
+
+
+<!-- ### Step 1. Generate predictions from regression model.  ----------------- -->
+
+<!-- # Generate predictions for poststratification cells. Takes a long time for  -->
+<!-- # county-level data w/ several covariates. -->
+<!-- pred_draws <- posterior_epred( -->
+<!--   mod, -->
+<!--   newdata = ps_cty, -->
+<!--   allow_new_levels = TRUE, -->
+<!--   draw_ids = draw_ids -->
+<!-- ) -->
+
+<!-- # If you just want a point estimate, you can also summarize across draws here. -->
+<!-- pred_plugin <- apply(pred_draws, c(2, 3), mean) -->
+
+
+
+
+<!-- ### Step 2. Extract estimates of correlations between outcomes. ---------- -->
+<!-- ## In the notation of the paper, this is \hat{\Sigma} from Eqn. 5-6.  -->
+
+<!-- # The function get_re_covs() extracts draws of the covariance matrix from the  -->
+<!-- # posterior.  -->
+<!-- # There are two formats available -- an array version and a tidy version. -->
+<!-- # The array version is used in the full Bayes calibration procedure, while the -->
+<!-- # tidy version is easier to summarize and plot. -->
+<!-- county_cov <- get_re_covs(mod = mod, group = "countyfips", tidy = FALSE, draw_ids = draw_ids) -->
+<!-- county_cov_tidy <- get_re_covs(mod = mod, group = "countyfips", tidy = TRUE, draw_ids = draw_ids) -->
+
+
+<!-- # For plug-in estimator, take the mean of the draws. -->
+<!-- county_cov_plugin <- apply(county_cov, c(2,3), mean, simplify = TRUE) -->
+
+
+<!-- ### Step 3. Prepare helper objects. -------------------------------------- -->
+
+<!-- # calibration targets -->
+<!-- calib_target <- res22 %>%  -->
+<!--   select(countyfips, pres2020_2pty)  -->
+
+<!-- # clean poststratification table -->
+<!-- ps_table_start <- ps_cty %>%  -->
+<!--   select(countyfips, est_prop) -->
+
+<!-- # outcome names stripped of underscores (brms does this so predictions don't have them) -->
+<!-- outcomes <- str_replace_all(outcomes, "_", "") -->
+
+
+
+<!-- ## Plug-In Calibration Estimator ---------------------------------------- -->
+
+<!-- ## Step 4, v.1. Run calibration procedure using plug-in estimators -->
+<!-- ps_table_plugin <- bind_cols(ps_table_start, pred_plugin) -->
+
+<!-- # get "realized" logit shifts for 2020 presidential vote by solving Eqn. 2 in MC'24 -->
+<!-- shifts_plugin <- logit_shift(ps_table = ps_table_plugin,  -->
+<!--                              pred_vars = "presvote2020twoparty", -->
+<!--                              weight = est_prop,  -->
+<!--                              geography = countyfips, -->
+<!--                              calib_target = calib_target, -->
+<!--                              calib_vars = "pres2020_2pty") -->
+
+
+<!-- # add "auxiliary" logit shifts, Eqn 6. -->
+<!-- shifts_plugin <- logit_shift_aux(shifts_plugin,  -->
+<!--                                  shift_var = "presvote2020twoparty",  -->
+<!--                                  cov = county_cov_plugin ) -->
+
+<!-- # Calibrate predictions using estimated logit shifts -->
+<!-- ps_table_plugin <- calibrate_preds(ps_table = ps_table_plugin,  -->
+<!--                                    shifts = shifts_plugin, -->
+<!--                                    preds = outcomes, -->
+<!--                                    geography = countyfips) -->
+
+<!-- # Aggregate/summarize the results however you want.  -->
+<!-- cty_res_plugin <- poststratify(ps_table = ps_table_plugin, -->
+<!--                                preds = c(all_of(outcomes), ends_with("_calib")), -->
+<!--                                weight = est_prop,  -->
+<!--                                by = countyfips) -->
+
+<!-- # Confirm that calibration worked (some missing values in Alaska due to bad county-level data). -->
+<!-- cty_res_plugin <- left_join(cty_res_plugin, calib_target %>% rename(truth = pres2020_2pty)) -->
+<!-- plot(cty_res_plugin$presvote2020twoparty_calib ~ cty_res_plugin$truth) -->
+
+<!-- # Compare adjusted and unadjusted estimates of Biden legitimacy.  -->
+<!-- # (Doesn't actually make a big difference on average here.) -->
+<!-- ggplot(cty_res_plugin) +  -->
+<!--   aes(x = bidenlegitimateirt, y = bidenlegitimateirt_calib) +  -->
+<!--   geom_point(size = .25) +  -->
+<!--   geom_abline(slope = 1, intercept = 0, colour = "red") +  -->
+<!--   geom_smooth(se = FALSE) +  -->
+<!--   labs(x = "Uncalibrated MRP Estimate",  -->
+<!--        y = "Calibrated MRP Estimate\n(Plug-In Estimator)", -->
+<!--        title = "Belief that Biden is the legitimate president") -->
+
+
+<!-- ## Full Bayes Calibration Estimator --------------------------------- -->
+
+<!-- # Step 4, v2. full Bayes.  -->
+<!-- # Run calibration procedure for each posterior draw. This is very slow, especially -->
+<!-- # when there are a lot of poststratification cells. For speed gains, parallelize -->
+<!-- # using furrr::future_map(). Can also just use purrr::map() or apply or a for loop. -->
+<!-- out <- future_map( -->
+<!--   .x = 1:length(draw_ids), -->
+<!--   .progress = TRUE, -->
+<!--   .f = ~ { -->
+<!--      draw <- .x -->
+
+<!--      ### add predictions to PS table -->
+<!--      preds <- as_tibble(pred_draws[draw,,]) -->
+<!--      ps_table <- bind_cols(ps_table_start, preds) -->
+
+<!--      ### Calculate logit shift for governor -->
+<!--      shifts <- logit_shift(ps_table = ps_table,  -->
+<!--                            pred_vars = "presvote2020twoparty", -->
+<!--                            weight = est_prop,  -->
+<!--                            geography = countyfips, -->
+<!--                            calib_target = calib_target, -->
+<!--                            calib_vars = "pres2020_2pty") -->
+
+
+<!--      # get auxiliary logit shifts -->
+<!--      shifts <- logit_shift_aux(shifts,  -->
+<!--                                shift_var = "presvote2020twoparty",  -->
+<!--                                cov = county_cov[draw,,] ) -->
+
+<!--      res <- calibrate_preds(ps_table = ps_table,  -->
+<!--                             shifts = shifts, -->
+<!--                             preds = outcomes, -->
+<!--                             geography = countyfips) -->
+
+<!--      res$.draw <- draw -->
+<!--      res -->
+<!--    }) -->
+
+
+<!-- ### Step 5. Summarize results across posterior draws ----------------- -->
+
+<!-- # To aggregate to other levels (e.g. state) do it within each draw, then  -->
+<!-- # summarize across draws. E.g. to poststratify to the county level, i'll do -->
+<!-- # the poststratification once for each draw then summarize across draws. -->
+<!-- cty_draws <- map(out, ~ { -->
+<!--   poststratify(ps_table = .x, -->
+<!--                preds = c(all_of(outcomes), ends_with("_calib")), -->
+<!--                weight = est_prop,  -->
+<!--                by = countyfips) -->
+<!-- }) -->
+
+<!-- cty_sum <- cty_draws %>%  -->
+<!--   bind_rows(.id = "draw") %>%  -->
+<!--   group_by(countyfips) %>%  -->
+<!--   summarise(across(-draw,  -->
+<!--                    list(mean = ~ mean(.x, na.rm = TRUE), -->
+<!--                         q5 = ~ quantile(.x, .05, na.rm = TRUE), -->
+<!--                         q95 = ~ quantile(.x, .95, na.rm = TRUE)))) -->
+
+
+<!-- # full Bayes version shows some larger differences than the plug-in estimator -->
+<!-- ggplot(cty_sum) +  -->
+<!--   aes(x = bidenlegitimateirt_calib_mean, y = bidenlegitimateirt_mean) +  -->
+<!--   geom_point(size = .25) +  -->
+<!--   geom_abline(slope = 1, intercept = 0, colour = "red") +  -->
+<!--   geom_smooth(se = FALSE) +  -->
+<!--   labs(x = "Uncalibrated MRP Estimate", y = "Calibrated MRP Estimate\n(Full Bayes Posterior Mean)", -->
+<!--        title = "Belief that Biden is the legitimate president") -->
+
+
+<!-- ``` -->

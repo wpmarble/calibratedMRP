@@ -1,7 +1,7 @@
 
 ## Code for calibration functions.
 # TODO: turn into an R package
-library(tidybayes)
+# library(tidybayes)
 
 
 ## The "logit shift" is used to calibrate turnout/vote share estimates.
@@ -17,6 +17,7 @@ library(tidybayes)
 
 #' Shift probabilities on the logit scale
 #' @keywords internal
+#' @importFrom stats plogis qlogis
 logit_shift_intercept <- function(x, a) {
   if (any(x[!is.na(x)] < 0) || any(x[!is.na(x)] > 1)) {
     rlang::abort(sprintf("x must be in (0, 1); got: %s", paste0(head(x), collapse = ", ")))
@@ -99,11 +100,11 @@ logit_shift_single = function(ps_table,
 
   # calculate logit shift for each geography
   shifts <- unique(ps$geography) %>%
-    map( ~ {
+    purrr::map( ~ {
 
       # subset PS table and target to this geography
       tmp_ps <- filter(ps, geography == .x)
-      tmp_targ <- filter(calib_target, geography == .x) %>% pull(calib_var)
+      tmp_targ <- filter(calib_target, geography == .x) %>% dplyr::pull(calib_var)
 
       # calculate logit shift
       if (is.na(tmp_targ) || length(tmp_targ) == 0){
@@ -146,34 +147,39 @@ logit_shift_single = function(ps_table,
 #'
 #' @importFrom tibble tibble
 #' @importFrom dplyr mutate select filter summarise rename left_join across any_of `%>%` bind_rows bind_cols
-#'
+#' @importFrom rlang sym enquo enquos `!!`
 #' @examples
-#' # Example poststratification table
-#' ps <- tibble::tibble(
-#'   county = rep(c("A", "B"), each = 100),
-#'   pred_vote = plogis(rnorm(200, qlogis(0.4), 0.5)),
-#'   pred_turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
-#'   weight = runif(200, 0.2, 0.8)
-#' )
+#' ## Example poststratification table with predictions for voteshare and turnout
+#' ps <- tibble::tibble(county = rep(c("A", "B"), each = 100),
+#'                      demo_group = rep(1:100, 2),
+#'                      pred_vote = plogis(rnorm(200, qlogis(0.4), 0.5)),
+#'                      pred_turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
+#'                      weight = runif(200, 0.2, 0.8)
+#'                      )
 #'
-#' # Calibration targets by county
-#' calib <- tibble::tibble(
+#' ## Calibration targets by county
+#' targets <- tibble::tibble(
 #'   county = c("A", "B"),
 #'   vote_target = c(0.55, 0.45),
 #'   turnout_target = c(0.65, 0.55)
 #' )
 #'
-#' # Compute logit shifts for both outcomes
-#' logit_shift(
+#' ## Compute logit shifts for both outcomes
+#' shifts <- logit_shift(
 #'   ps_table = ps,
 #'   vars = c(pred_vote, pred_turnout),
 #'   weight = weight,
 #'   geography = county,
-#'   calib_target = calib,
+#'   calib_target = targets,
 #'   calib_vars = c(vote_target, turnout_target)
 #' )
+#' shifts # data frame with intercept shift needed for each geography
 #'
-# TODO: add a final bit of example showing calibration worked right
+#' ## Calibrate predictions for each cell in poststratification table
+#' ps <- calibrate_preds(ps_table = ps, shifts = shifts,
+#'                       preds = c(pred_vote, pred_turnout),
+#'                       geography = county)
+#' head(ps)
 logit_shift <- function(ps_table,
                         vars,
                         weight,
@@ -204,51 +210,97 @@ logit_shift <- function(ps_table,
                   calib_var = !!sym(.y)
                 )
   ) %>%
-    purrr::reduce(full_join, by = rlang::englue("{{ geography }}"))
+    purrr::reduce(dplyr::full_join, by = rlang::englue("{{ geography }}"))
 
 }
 
 
-#' Recalibrate probabilities by applying a user-supplied logit shift
+
+#' Recalibrate probabilities after computing logit shifts
 #'
-#' Takes the poststratification table and a table of logit shifts and returns
-#' the recalibrated probabilities.
+#' Takes the poststratification table and a table of logit shift parameters and
+#' returns the calibrated cell-level probabilities.
 #'
-#' @param ps_table A data frame storing poststratification cells with model-based
-#'   predictions attached.
-#' @param shifts A data frame of logit shift parameters.
-#' @param preds Variables in `ps_table` that store model-based predictions
-#'   for two outomes and prefix for shift parameters in `shifts`
-#' @param geography Geography variable linking `ps_table` and `shifts`.
-#' @param shift_suffix Suffix for the shift variables, e.g. if the first outcome
+#' @param ps_table A data frame storing poststratification cells with (uncalibrated)
+#' model-based predictions.
+#' @param shifts A data frame of logit shift parameters computed by [logit_shift()].
+#' Each shift must be named `{pred}_{shift_suffix}`, e.g., `voteshare_shift` if
+#' the prediction variable in `ps_table` is `voteshare`.
+#' @param preds One or more prediction variables in `ps_table` to recalibrate.
+#'   Accepts tidyselect syntax (e.g., `var`, `c(var1, var2)`, `starts_with()`).
+#' @param geography Group variable variable linking `ps_table` and `shifts`.
+#' This should be a single variable name (unquoted) that exists in both data frames.
+#' @param shift_suffix String suffix for the shift variables, e.g. if the first outcome
 #'   variable is called `presvote` then the shift variable will be called
 #'   `presvote_shift`.
-#' @param calib_suffix Suffix for recalibrated vote probabilities.
-
-
-calibrate_preds <- function(ps_table, shifts, preds, geography,
+#' @param calib_suffix String suffix for calibrated vote probabilities. E.g., if
+#' original prediction is valled `voteshare` then the calibrated prediction
+#' will be called `voteshare_calib`.
+#'
+#' @return Returns `ps_table` with additional columns for calibrated predictions.
+#'
+#' @export
+#'
+#' @examples
+#' ## Example poststratification table with predictions for voteshare and turnout
+#' ps <- tibble::tibble(county = rep(c("A", "B"), each = 100),
+#'                      demo_group = rep(1:100, 2),
+#'                      pred_vote = plogis(rnorm(200, qlogis(0.4), 0.5)),
+#'                      pred_turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
+#'                      weight = runif(200, 0.2, 0.8)
+#'                      )
+#'
+#' ## Calibration targets by county
+#' targets <- tibble::tibble(
+#'   county = c("A", "B"),
+#'   vote_target = c(0.55, 0.45),
+#'   turnout_target = c(0.65, 0.55)
+#' )
+#'
+#' ## Compute logit shifts for both outcomes
+#' shifts <- logit_shift(
+#'   ps_table = ps,
+#'   vars = c(pred_vote, pred_turnout),
+#'   weight = weight,
+#'   geography = county,
+#'   calib_target = targets,
+#'   calib_vars = c(vote_target, turnout_target)
+#' )
+#'
+#' ## Calibrate predictions in poststratification table
+#' ps <- calibrate_preds(ps_table = ps, shifts = shifts,
+#'                       preds = c(pred_vote, pred_turnout),
+#'                       geography = county)
+#' head(ps)
+calibrate_preds <- function(ps_table,
+                            shifts,
+                            preds,
+                            geography,
                             shift_suffix = "shift",
                             calib_suffix = "calib"){
 
-  # englue turns it into a character vector needed for _join
-  geography <- rlang::englue("{{ geography }}")
-  out <- left_join(ps_table, shifts, by = geography)
+  # Resolve tidyselect
+  pred_vars <- tidyselect::eval_select(rlang::enquo(preds), ps_table) |> names()
+  geo_var <- rlang::englue("{{ geography }}")
+  out <- dplyr::left_join(ps_table, shifts, by = geo_var)
 
-  # recalibrate probabilities, store in pred_calib variable
-  out <- out %>%
-    mutate(across(all_of(preds),
-                  ~ logit_shift_intercept(x = .x,
-                                          a = get(sprintf("%s_%s", cur_column(), shift_suffix))),
-                  .names = "{.col}_{calib_suffix}"))
+  # Recalibrate each prediction column manually
+  for (pred in pred_vars) {
+    shift_col <- paste0(pred, "_", shift_suffix)
+    calib_col <- paste0(pred, "_", calib_suffix)
 
-  # drop "shift" columns - just store updated probabilities
-  todrop <- shifts %>%
-    select(-{{ geography }}) %>%
-    names() %>%
-    intersect(names(out))
-  out %>%
-    select(-any_of(todrop))
+    out[[calib_col]] <- logit_shift_intercept(
+      x = out[[pred]],
+      a = out[[shift_col]]
+    )
+  }
+
+  # Drop original shift columns
+  shift_cols <- paste0(pred_vars, "_", shift_suffix)
+  out <- dplyr::select(out, -dplyr::any_of(shift_cols))
+  out
 }
+
 
 
 #' Extract covariance of random effects across outcomes
@@ -271,6 +323,8 @@ calibrate_preds <- function(ps_table, shifts, preds, geography,
 #' @param draw_ids An integer vector specifying the posterior draws to be used.
 #'   If NULL (the default), all draws are used.
 #' @importFrom tidybayes spread_draws
+#' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols `%>%`
+#' @export
 get_re_covs <- function(mod, group,
                         tidy = FALSE,
                         outcome_order = NULL,
@@ -340,7 +394,7 @@ get_re_covs <- function(mod, group,
     out <- out %>%
       group_by(.draw) %>%
       group_split() %>%
-      map(.progress = "Transforming covariance params to array",
+      purrr::map(.progress = "Transforming covariance params to array",
           .f = ~ {
         tmp <- .x %>%
           select(param1, param2, est) %>%
@@ -426,6 +480,11 @@ logit_shift_aux <- function(shift,
 #' A data frame with one row per group in `by` and columns for each variable in
 #' `vars` containing the postratified estimates.
 #'
+#' @export
+#'
+#' @importFrom rlang enquo
+#' @importFrom tidyselect eval_select
+#'
 #' @examples
 #' # Example poststrat table
 #' ps <- data.frame(
@@ -442,12 +501,12 @@ logit_shift_aux <- function(shift,
 #'   weight = N,
 #'   by = county
 #' )
-poststratify = function(ps_table, vars, weight, by, n_out = "n", na.rm = TRUE) {
+poststratify <- function(ps_table, vars, weight, by, n_out = "n", na.rm = TRUE) {
 
   ps_table %>%
-    summarise(across({{ vars }},
-                     ~ weighted.mean(.x, {{ weight }},
-                                     na.rm = na.rm)),
+    dplyr::summarise(dplyr::across({{ vars }},
+                                        ~ weighted.mean(.x, {{ weight }},
+                                                        na.rm = na.rm)),
               {{ n_out }} := sum({{ weight }}, na.rm = na.rm),
               .by = {{ by }})
 
@@ -463,7 +522,7 @@ poststratify = function(ps_table, vars, weight, by, n_out = "n", na.rm = TRUE) {
 #' value.
 #'
 #'
-#' @param preds A $D \times N \times K$ array or an $N \times K$ data frame
+#' @param preds A \eqn{D \times N \times K} array or an \eqn{N \times K} data frame
 #'   storing predictions from the poststratification table to be normalized.
 #'   If an array, the first index stores the draw number (e.g. from the posterior),
 #'   the second indexes rows in the poststratification table, and the third indexes
@@ -473,7 +532,7 @@ poststratify = function(ps_table, vars, weight, by, n_out = "n", na.rm = TRUE) {
 #'   what the parameters must sum to. Alternatively, a list of the same length
 #'   as `vars`, each element of which is a numeric vector that specifies what
 #'   each row must sum to. Each element of this list must be the same length as
-#'   the number of rows in `preds` (i.e. $N$). Defaults to 1.
+#'   the number of rows in `preds` (i.e. \eqn{N}). Defaults to 1.
 #' @details For each set of variables in `vars`, this function rescales the
 #'   variables so that their sum equals their corresponding constraint. For
 #'   example, if `vars = list(c(v1, v2), c(v3, v4))` and `constraints = c(1, 2)`,
