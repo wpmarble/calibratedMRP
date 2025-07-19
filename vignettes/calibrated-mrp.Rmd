@@ -1,6 +1,7 @@
 ---
 title: "Calibrated MRP Workflow"
 output: rmarkdown::html_vignette
+author: William Marble
 vignette: >
   %\VignetteIndexEntry{Calibrated MRP Workflow}
   %\VignetteEngine{knitr::rmarkdown}
@@ -20,6 +21,7 @@ library(fixest)
 library(lubridate)
 library(brms)
 library(furrr)
+library(forcats)
 library(tidyr)
 library(dplyr)
 library(ggplot2)
@@ -173,7 +175,7 @@ We make use of two features of the `brms` modeling syntax. First, we use the `mv
 
 Our model includes the following predictors. 
 
-**Individual-Level Predictors.** The individual-level predictors include gender, age group (entered as a linear predictor),  race, and education. We also include random intercepts for age group, combinations of age and education, and combinations of white/nonwhite $\times$ education $\times$ age group.[^2]
+**Individual-Level Predictors.** The individual-level predictors include gender, age group (entered as a linear predictor),  race, and education. We also include random intercepts for age group, and combinations of white/nonwhite $\times$ education $\times$ age group.[^2]
 
 **State-Level Predictors.** The state-level predictors include the Democratic vote share in the 2020 presidential election and we include random intercepts for census region and state. 
 
@@ -188,7 +190,7 @@ formula <- bf(
 
     # individual-level predictors
     gender + as.integer(agegrp) + (1 | age | agegrp) + race + educ +
-    (1 | raceeduc | race_educ) + (1 | educagewhite | nonwhite_educ_agegrp) +
+    (1 | educagewhite | nonwhite_educ_agegrp) +
 
     # state-level predictors
     st_demvs_2016_z + (1 | censreg | census.region) + (1 | state | state) +
@@ -217,8 +219,9 @@ $$
 $$
 In this specification the covariance matrix $\Sigma$ is represented as a Cholesky factorization, where the standard deviations of the random effects $\sigma_j$ are given Student-$t$ priors and the correlation matrix $\Omega$ is given a uniform LKJ prior. 
 
+Here we estimate the model using HMC, running 4 chains with 1000 iterations each. The first half of each chain will be discarded, so this will yield 2000 total posterior draws. Due to the complexity of the model we set `adapt_delta = 0.99` and `max_treedepth = 12` to ensure that the sampler converges properly.
 
-```{r fit-model, cache=TRUE}
+```{r fit-model, eval=FALSE}
 priors <- prior(normal(0, 5), class = b)
 
 # Fit model
@@ -226,87 +229,163 @@ mod <- brm(formula = formula,
            data = surv,
            family = bernoulli,
            prior = priors,
-           chains = 4, cores = 4,
-           iter = 100,
+           chains = 4, 
+           cores = 4,
+           iter = 1000,
            backend = "cmdstanr",
-           # adapt_delta = .9,
+           adapt_delta = .99,
            max_treedepth = 12)
+
+# save model
+saveRDS(mod, file = "data/vignette_model_fit.rds")
+```
+
+```{r load-model, echo=FALSE}
+mod <- readRDS("data/vignette_model_fit.rds")
 ```
 
 We check some basic MCMC diagnostics to check whether the model has converged and the effective sample size of posterior draws is sufficient. 
 
 ```{r mcmc-diagnostics}
 rhats <- rhat(mod)
-if (max(rhats) > 1.02) rlang::warn("Some parameters have r-hat values above 1.02")
+if (max(rhats) > 1.03) rlang::warn(sprintf("%s parameters have r-hat values above 1.03", sum(rhats > 1.03)))
 rstan::check_hmc_diagnostics(mod$fit)
 suppressWarnings(neff <- neff_ratio(mod))
 if (mean(neff) < 0.5 || min(neff) < 0.1) rlang::warn("Some parameters have low neff ratios")
 ```
+# Generate MRP Estimates
 
-<!-- # Fit model -->
+Now that we have a model relating attitudes to demographic and geographic features, the next step is to generate estimates for every cell in the poststratification table. Since we are operating in a Bayesian setting, we will generate estimates for each posterior draw. The `posterior_epred()` function from `brms` allows us to generate predictions for new data, which we will use to generate estimates for each poststratification cell in `ps_cty`. This function returns an array that has dimensions $\text{(N draws)} \times \text{(N poststratification cells)} \times \text{(N outcomes)}$. This step is computationally intensive.^[3]
 
-<!-- ```{r fit-model} -->
+^[3]: For computational efficiency, we will only use a subset of posterior draws to generate predictions. In practice, you would want to use all posterior draws, but this is less memory-intensive and faster for demonstration purposes.
 
-<!-- # Specify model formula -->
-<!-- form <- bf( -->
-<!--   # outcomes -->
-<!--   mvbind(biden_legitimate_irt, election_fair_irt, biden_appr_irt, presvote2020_twoparty) ~ -->
-
-<!--     # individual-level predictors -->
-<!--     gender + as.integer(agegrp) + (1 | age | agegrp) + race + educ + -->
-<!--     (1 | raceeduc | race_educ) + (1 | educagewhite | nonwhite_educ_agegrp) +  -->
-
-<!--     # state-level predictors -->
-<!--     st_demvs_2020_z + (1 | censreg | census.region) + (1 | state | state) +  -->
-
-<!--     # county-level predictors -->
-<!--     cty_pct_nonwhite_z +  cty_pct_hispanic_z + -->
-<!--     cty_pct_college_z + cty_med_inc_z + cty_dem2020_z + -->
-<!--     (1 | c | countyfips)  -->
-<!-- ) -->
-<!-- priors <- prior(normal(0, 5), class = b) -->
+Formally, we observe a 3-dimensional array $\tilde{\mathcal{Y}}$ with entries $\tilde{\theta}_{(m, c, j)}$ representing a draw $m$ from the posterior distribution of the share of respondents in poststratification cell $c$ who answered "yes" to question $j$.
 
 
-<!-- ## Fit model  -->
-<!-- mod <- brm(formula = form,  -->
-<!--            data = sm_fit, -->
-<!--            family = bernoulli, -->
-<!--            prior = priors, -->
-<!--            chains = 4, cores = 4, -->
-<!--            iter = 100, -->
-<!--            backend = "cmdstanr", -->
-<!--            adapt_delta = .98, -->
-<!--            max_treedepth = 12) -->
+```{r generate-predictions, cache=TRUE}
+draw_ids <- sample(1:ndraws(mod), 100)  # subset of posterior draws to use
 
-<!-- # MCMC/HMC diagnostics -->
-<!-- rhats <- rhat(mod) -->
-<!-- if (max(rhats) > 1.02) rlang::warn("Some parameters have r-hat values above 1.02") -->
-<!-- rstan::check_hmc_diagnostics(mod$fit) -->
-<!-- neff <- neff_ratio(mod) -->
-<!-- if (mean(neff) < 0.5 || min(neff) < 0.1) rlang::warn("Some parameters have low neff ratios") -->
-<!-- ``` -->
+# Generate predictions for poststratification cells. 
+# Larger poststratification tables require more compute time. 
+pred_draws <- posterior_epred(
+  mod,
+  newdata = ps_cty,
+  allow_new_levels = TRUE,
+  draw_ids = draw_ids
+)
+
+# This matrix has dimensions: 
+# (# of posterior draws) X (# poststratification cells) X (# of outcomes)
+dim(pred_draws)
+
+dimnames(pred_draws)[1] <- list(sprintf("draw_%s", 1:dim(pred_draws)[1]))
+dimnames(pred_draws)[2] <- list(sprintf("cell_%s", 1:dim(pred_draws)[2]))
+```
+
+
+## Generate Uncalibrated Poststratification Estimates 
+
+The final step of MRP is to poststratify to the level of interest. This involves taking a weighted average of the cell-level estimates, where the weights are proportional to the population counts in each poststratification cell. For example, suppose we wanted to estimate the share of people in Pennsylvania who believe that Joe Biden is the legitimate president. Then, we would sum over all of the poststratification cells with the value `state == "PA"`:
+$$
+\begin{align}
+  \hat{\theta}^{{Biden\,Legit}}_{Pa} &= \frac{1}{M} \sum_{m=1}^{M}\sum_{c \in \text{PA}} \tilde{\theta}_{(d, c, 1)} \cdot w_c \\
+\end{align}
+$$
+where $M$ is the total number of posterior draws and $w_c$ are weights that are proportional to the population counts in each poststratification cell $c$ (and sum to 1). 
 
 
 
-<!-- # Generate cell-level estimates -->
 
-<!-- ```{r cell-estimates} -->
-
-<!-- ### Step 0. Define a subset of posterior draws to use. -------------------- -->
-<!-- # Should use all draws but this is less memory/computationally intensive.  -->
-<!-- draw_ids <- sample(1:ndraws(mod), 100) -->
+We then have two choices. The most flexible choice for downstream analysis is to generate a cell-level summary of the posterior distribution. We can then poststratify further to the level of interest (e.g., county, state, broad demographic group) and summarize the posterior distribution of estimates for each outcome. 
 
 
-<!-- ### Step 1. Generate predictions from regression model.  ----------------- -->
+??We can use the `poststratify()` function to generate these estimates. ??
 
-<!-- # Generate predictions for poststratification cells. Takes a long time for  -->
-<!-- # county-level data w/ several covariates. -->
-<!-- pred_draws <- posterior_epred( -->
-<!--   mod, -->
-<!--   newdata = ps_cty, -->
-<!--   allow_new_levels = TRUE, -->
-<!--   draw_ids = draw_ids -->
-<!-- ) -->
+### Plug-In Estimation
+
+```{r plug-in-uncalibrated}
+# get posterior mean for each cell
+pred_plugin <- apply(pred_draws, c(2, 3), mean)
+dimnames(pred_plugin)[[2]] <- dimnames(pred_draws)[[3]]  # use outcome names from model
+
+# convert to tibble
+pred_plugin <- as_tibble(pred_plugin) %>% 
+  rename_with(~ paste0(.x, "_uncalib")) %>% 
+  mutate(cell = row_number()) 
+
+# get posterior SD 
+pred_se <- apply(pred_draws, c(2, 3), sd)
+dimnames(pred_se)[[2]] <- dimnames(pred_draws)[[3]]  # use outcome names from model
+pred_se <- as_tibble(pred_se) %>% 
+  rename_with(~ paste0(.x, "_uncalib_se")) %>% 
+  mutate(cell = row_number()) 
+
+# combine predictions and SEs
+pred_plugin <- left_join(pred_plugin, pred_se, by = "cell")
+celln <- which(names(pred_plugin) == "cell")
+order <- c("cell", sort(names(pred_plugin)[-celln]))
+pred_plugin <- pred_plugin[, order] 
+
+# combine with original poststratification table
+ps_cty <- bind_cols(ps_cty, pred_plugin %>% select(-cell))
+```
+
+Let's begin visualizing the relationship between the outcome and the demographic predictors. We'll start by plotting all poststratifcation cells in Pennsylvania for the Biden legitimacy outcome. Each cell represents a combination of county, age group, race, gender, and education level. 
+
+```{r, fig.height=10, fig.width=9}
+ggplot(ps_cty %>% filter(state == "PA")) + 
+  aes(y = bidenlegitimate_uncalib, x = as.integer(agegrp), 
+      colour = ifelse(nonwhite, "non-white", "white"), weight = est_n) + 
+  geom_point(aes(size = est_n, alpha = est_n), pch = 1, position = position_jitter(.25)) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE) + 
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = 1:(length(levels(ps_cty$agegrp))),  labels = levels(ps_cty$agegrp)) + 
+  guides(colour = guide_legend(title = NULL)) + 
+  guides(size = "none", alpha = "none") + 
+  facet_grid(fct_relevel(educ, c("HS or less", "some college", "college", "postgrad")) ~ gender) + 
+  theme(legend.position = "top") + 
+  labs(x = "Poststratification Cell Age",
+       y = "Estimated Share Believing Biden is Legitimate",
+       title = "Belief in Biden Legitimacy in Pennsylvania",
+       caption = "Points are sized proportional to size in population.")
+```
+
+
+The `poststratify()` function generates state-level estimates. 
+
+```{r uncalib-state, fig.height=9, fig.width=6}
+stop("need to check the se functionality here")
+state_ests <- poststratify(ps_cty, 
+                           outcomes = c(bidenlegitimate_uncalib, bidenappr_uncalib, presvote2020twoparty_uncalib), 
+                           ses = TRUE,
+                           se_suffix = "_se",
+                           weight = est_prop, 
+                           by = state)
+
+
+
+ggplot(state_ests) + 
+  aes(x = bidenlegitimate_uncalib, 
+      xmin = bidenlegitimate_uncalib - 2 * bidenlegitimate_uncalib_se,
+      xmax = bidenlegitimate_uncalib + 2 * bidenlegitimate_uncalib_se,
+      y = fct_reorder(state, bidenlegitimate_uncalib)) +
+  geom_point() + 
+  geom_errorbarh(height = 0) + 
+  scale_x_continuous(labels = scales::percent) + 
+  labs(x = "Estimated Share Believing Biden is Legitimate",
+       y = NULL,
+       title = "Belief in Biden Legitimacy by State",
+       subtitle = "Uncalibrated MRP Estimates")
+```
+
+
+### Full Bayesian Inference
+```{r poststratify-uncalibrated, cache=TRUE}
+
+
+```
+
+
 
 <!-- # If you just want a point estimate, you can also summarize across draws here. -->
 <!-- pred_plugin <- apply(pred_draws, c(2, 3), mean) -->

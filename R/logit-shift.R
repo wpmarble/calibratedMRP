@@ -14,6 +14,10 @@
 ## namely inv.logit( logit(x) + a.star ).
 
 
+# Package-level environment variables
+.calibratedMRP_env <- new.env(parent = emptyenv())
+.calibratedMRP_env$postratify_se_warned <- FALSE
+
 
 #' Shift probabilities on the logit scale
 #' @keywords internal
@@ -469,8 +473,17 @@ logit_shift_aux <- function(shift,
 #' for each group.
 #'
 #' @param ps_table A data frame where each row represents a poststratification cell.
-#' @param vars One or more outcome variables to poststratify.
+#'   The table must include the variables specified in `outcomes`, `weight`, `by`,
+#'   and (optionally) `ses`.
+#' @param outcomes One or more outcome variables to poststratify.
 #'   Accepts tidyselect syntax (e.g., `var`, `c(var1, var2)`, `starts_with("prefix")`).
+#'   These variables should include cell-level summaries of the outcomes of interest.
+#' @param ses Should standard errors be computed for the postratified estimates under
+#'   the assumption of independence across cells?
+#' @param se_suffix Character suffix for the columns containing standard errors
+#'   for the cell-level estimates of `outcomes`. Defaults to "_se", so if the
+#'   outcome is `voteshare`, the cell-level standard errors will be stored in
+#'   a column called `voteshare_se`.
 #' @param weight A variable giving the population weights in `ps_table`.
 #' @param by One or more grouping variables. Accepts tidyselect syntax.
 #' @param n_out Name of the output column that stores the total weight per group.
@@ -501,14 +514,54 @@ logit_shift_aux <- function(shift,
 #'   weight = N,
 #'   by = county
 #' )
-poststratify <- function(ps_table, vars, weight, by, n_out = "n", na.rm = TRUE) {
+#'
 
-  ps_table %>%
-    dplyr::summarise(dplyr::across({{ vars }},
-                                        ~ weighted.mean(.x, {{ weight }},
-                                                        na.rm = na.rm)),
+poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
+                         weight, by, n_out = "n", na.rm = TRUE) {
+
+
+  group_vars <- rlang::enquo(by)
+  weight_var <- rlang::enquo(weight)
+  mean_vars <- tidyselect::eval_select(rlang::enquo(outcomes), ps_table) |> names()
+  se_vars <- paste0(mean_vars, se_suffix)
+
+
+  out <- ps_table %>%
+    dplyr::summarise(dplyr::across({{ outcomes }},
+                                   ~ weighted.mean(.x, {{ weight }}, na.rm = na.rm)),
               {{ n_out }} := sum({{ weight }}, na.rm = na.rm),
               .by = {{ by }})
+
+  if (ses) {
+    if (!.calibratedMRP_env$postratify_se_warned) {
+      rlang::inform(c("Computing standard errors for postratified estimates under the assumption of independence across cells.",
+                     "x" = "True uncertainty may be larger or smaller depending on covariance of posterior means of `outcomes` across cells",
+                     "i" = "For full Bayesian inference, do XYZ",
+                     "i" = "This message will only be displayed once per session"))
+      .calibratedMRP_env$warned_se <- TRUE
+    }
+
+    out_se <- ps_table %>%
+      dplyr::summarise(dplyr::across(all_of(se_vars),
+                                     ~ sqrt(sum({{ weight }}^2 * .x^2, na.rm = na.rm)
+                                            / sum({{ weight }}, na.rm = na.rm)^2 )),
+                       .by = {{ by }})
+    out <- left_join(out, out_se, by = rlang::englue("{{ by }}"))
+  }
+
+  # Reorder columns: [grouping vars], outcome1, outcome1_se, outcome2, outcome2_se, ..., n_out
+  group_names <- names(out[tidyselect::eval_select(rlang::enquo(by), out)])
+
+
+  mean_cols <- mean_vars
+  se_cols <- character(0)
+  if (ses && !is.null(se_suffix)) {
+    se_cols <- paste0(mean_vars, se_suffix)
+  }
+  remainder <- setdiff(names(out), c(group_names, mean_cols, se_cols))
+  col_order <- c(group_names, as.vector(rbind(mean_cols, se_cols)), remainder)
+  out <- dplyr::select(out, dplyr::all_of(col_order))
+  out
 
 }
 
