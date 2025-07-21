@@ -257,9 +257,9 @@ if (mean(neff) < 0.5 || min(neff) < 0.1) rlang::warn("Some parameters have low n
 
 Now that we have a model relating attitudes to demographic and geographic features, the next step is to generate estimates for every cell in the poststratification table. Since we are operating in a Bayesian setting, we will generate estimates for each posterior draw. The `posterior_epred()` function from `brms` allows us to generate predictions for new data, which we will use to generate estimates for each poststratification cell in `ps_cty`. This function returns an array that has dimensions $\text{(N draws)} \times \text{(N poststratification cells)} \times \text{(N outcomes)}$. This step is computationally intensive.^[3]
 
-^[3]: For computational efficiency, we will only use a subset of posterior draws to generate predictions. In practice, you would want to use all posterior draws, but this is less memory-intensive and faster for demonstration purposes.
+[^3]: For computational efficiency, we will only use a subset of posterior draws to generate predictions. In practice, you would want to use all posterior draws, but this is less memory-intensive and faster for demonstration purposes.
 
-Formally, we observe a 3-dimensional array $\tilde{\mathcal{Y}}$ with entries $\tilde{\theta}_{(m, c, j)}$ representing a draw $m$ from the posterior distribution of the share of respondents in poststratification cell $c$ who answered "yes" to question $j$.
+Formally, we observe a 3-dimensional array $\tilde{\Theta}$ with entries $\tilde{\theta}_{(m, c, j)}$ representing a draw $m$ from the posterior distribution of the share of respondents in poststratification cell $c$ who answered "yes" to question $j$.
 
 
 ```{r generate-predictions, cache=TRUE}
@@ -285,7 +285,7 @@ dimnames(pred_draws)[2] <- list(sprintf("cell_%s", 1:dim(pred_draws)[2]))
 
 ## Generate Uncalibrated Poststratification Estimates 
 
-The final step of MRP is to poststratify to the level of interest. This involves taking a weighted average of the cell-level estimates, where the weights are proportional to the population counts in each poststratification cell. For example, suppose we wanted to estimate the share of people in Pennsylvania who believe that Joe Biden is the legitimate president. Then, we would sum over all of the poststratification cells with the value `state == "PA"`:
+The final step of MRP is to poststratify to the level of interest. This involves taking a weighted average of the cell-level estimates, where the weights are proportional to the population counts in each poststratification cell. For example, suppose we wanted to estimate the share of people in Pennsylvania who believe that Joe Biden is the legitimate president. We obtain an estimate of this quantity by summing over all of the poststratification cells with the value `state == "PA"`:
 $$
 \begin{align}
   \hat{\theta}^{{Biden\,Legit}}_{Pa} &= \frac{1}{M} \sum_{m=1}^{M}\sum_{c \in \text{PA}} \tilde{\theta}_{(d, c, 1)} \cdot w_c \\
@@ -330,7 +330,7 @@ pred_plugin <- pred_plugin[, order]
 ps_cty <- bind_cols(ps_cty, pred_plugin %>% select(-cell))
 ```
 
-Let's begin visualizing the relationship between the outcome and the demographic predictors. We'll start by plotting all poststratifcation cells in Pennsylvania for the Biden legitimacy outcome. Each cell represents a combination of county, age group, race, gender, and education level. 
+Let's start by visualizing the modeled relationship between the outcome and the demographic predictors. We'll start by plotting all poststratifcation cells in Pennsylvania for the Biden legitimacy outcome. Each cell represents a combination of county, age group, race, gender, and education level. 
 
 ```{r, fig.height=10, fig.width=9}
 ggplot(ps_cty %>% filter(state == "PA")) + 
@@ -354,7 +354,6 @@ ggplot(ps_cty %>% filter(state == "PA")) +
 The `poststratify()` function generates state-level estimates. 
 
 ```{r uncalib-state, fig.height=9, fig.width=6}
-stop("need to check the se functionality here")
 state_ests <- poststratify(ps_cty, 
                            outcomes = c(bidenlegitimate_uncalib, bidenappr_uncalib, presvote2020twoparty_uncalib), 
                            ses = TRUE,

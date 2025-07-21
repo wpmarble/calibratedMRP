@@ -56,7 +56,7 @@ shifts <- logit_shift(
 )
 shifts # data frame with intercept shift needed for each geography
 
-## Calibrate predictions using [calibrate_preds()]
+## Calibrate predictions for each cell in poststratification table
 ps <- calibrate_preds(ps_table = ps, shifts = shifts,
                       preds = c(pred_vote, pred_turnout),
                       geography = county)

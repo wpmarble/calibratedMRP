@@ -4,13 +4,33 @@
 \alias{poststratify}
 \title{Poststratify estimates}
 \usage{
-poststratify(ps_table, vars, weight, by, n_out = "n", na.rm = TRUE)
+poststratify(
+  ps_table,
+  outcomes,
+  ses = FALSE,
+  se_suffix = "_se",
+  weight,
+  by,
+  n_out = "n",
+  na.rm = TRUE
+)
 }
 \arguments{
-\item{ps_table}{A data frame where each row represents a poststratification cell.}
+\item{ps_table}{A data frame where each row represents a poststratification cell.
+The table must include the variables specified in \code{outcomes}, \code{weight}, \code{by},
+and (optionally) \code{ses}.}
 
-\item{vars}{One or more outcome variables to poststratify.
-Accepts tidyselect syntax (e.g., \code{var}, \code{c(var1, var2)}, \code{starts_with("prefix")}).}
+\item{outcomes}{One or more outcome variables to poststratify.
+Accepts tidyselect syntax (e.g., \code{var}, \code{c(var1, var2)}, \code{starts_with("prefix")}).
+These variables should include cell-level summaries of the outcomes of interest.}
+
+\item{ses}{Should standard errors be computed for the postratified estimates under
+the assumption of independence across cells? See details.}
+
+\item{se_suffix}{Character suffix for the columns containing standard errors
+for the cell-level estimates of \code{outcomes}. Defaults to "_se", so if the
+outcome is \code{voteshare}, the cell-level standard errors will be stored in
+a column called \code{voteshare_se}.}
 
 \item{weight}{A variable giving the population weights in \code{ps_table}.}
 
@@ -29,22 +49,41 @@ Compute weighted means for one or more outcome variables using
 poststratification weights, grouped by specified variables (typically geographies
 or demographic groups). Returns a tidy data frame with one row per group
 and one column per poststratified variable, plus the total population weight
-for each group.
+for each group. Optionally estimates uncertainty if cell-level standard errors
+are provided.
+}
+\details{
+When the \code{outcomes} in \code{ps_table} are posterior means from a multilevel model,
+the resulting postratified estimates are also posterior means. The uncertainty
+estimation assumes that there is 0 covariance between cell-level posterior means
+and computes the standard errors as \eqn{\sqrt{\sum_c w_c^2 \sigma_c^2 / (\sum w_c)^2}},
+where \eqn{w_c} is the weight for cell \eqn{c} and \eqn{\sigma_c^2} is the
+standard error of the posterior mean in cell \eqn{c}.
+This feature is useful when first summarize the posterior of the multilevel
+model at the cell level, then use this summary for downstream analysis. This
+two-step procedure is more efficient in terms of storage and computation than
+full Bayesian inference, which involves computing the final quantity of interest
+separately for each draw from the posterior. However, the assumption of
+independence across cells is typically unrealistic, and so full Bayesian inference
+should typically yield more accurate uncertainty estimates.
 }
 \examples{
 # Example poststrat table
 ps <- data.frame(
   county = rep(c("A", "B"), each = 3),
   demo_group = rep(c(1, 2), 3),
-  cell_est = c(0.4, 0.5, 0.6, 0.3, 0.35, 0.4),
+  estimate = c(0.4, 0.5, 0.6, 0.3, 0.35, 0.4),
+  estimate_se = c(0.05, 0.04, 0.06, 0.03, 0.02, 0.05),
   N = c(100, 200, 300, 150, 250, 100)
 )
 
 # Poststratify cell_est to counties
 poststratify(
   ps_table = ps,
-  vars = "cell_est",
+  outcomes = estimate,
+  ses = TRUE,
   weight = N,
   by = county
 )
+
 }
