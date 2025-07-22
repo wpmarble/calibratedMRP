@@ -4,12 +4,19 @@
 \alias{logit_shift_single}
 \title{Compute logit shift for a single outcome}
 \usage{
-logit_shift_single(ps_table, var, weight, geography, calib_target, calib_var)
+logit_shift_single(
+  ps_table,
+  outcome,
+  weight,
+  geography,
+  calib_target,
+  calib_var
+)
 }
 \arguments{
 \item{ps_table}{A data frame of poststratification cells with predictions.}
 
-\item{var}{Variable in \code{ps_table} storing predictions to calibrate.}
+\item{outcome}{CharVariable in \code{ps_table} storing outcome to calibrate.}
 
 \item{weight}{Weighting variable for population counts.}
 

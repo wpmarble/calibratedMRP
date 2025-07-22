@@ -30,7 +30,7 @@ library(modelsummary)
 set.seed(1234)
 
 # for parallel computation
-plan(multisession, workers = 4)
+future::plan("multisession", workers = 4) 
 options(future.globals.maxSize = 3e3 * 1024^2) # 3GB memory for `future`
 
 # ggplot setup
@@ -52,7 +52,7 @@ We'll start by loading the data and calculating the raw survey percentages. We'l
 The file `2022-survey.rdata` includes three objects:
 
 * `surv` is a data frame of survey data collected in fall 2022 via SurveyMonkey.
-* `ps_cty` is a poststratification table with county-level population counts for cells defined by combinations of age group, education level, race, and gender. It also includes some contextual variables. County-level contextual variables include share of the population that is non-white, share Hispanic/Latino, share with a college degree, median income, and election results from 2020. Variables ending in `_z` are standardized versions of the original variables.
+* `ps_cty` is a poststratification table with county-level population counts for cells defined by combinations of age group, education level, race, and gender. It also includes some contextual variables. County-level contextual variables include share of the population that is non-white, share Hispanic/Latino, share with a college degree, median income, and election results from 2020. Variables ending in `_z` are standardized versions of the original variables. The variables `est_n` and `est_prop` include, respectively, the estimated population count and population share in each poststratification cell, according to the 2022 American Community Survey. 
 * `targets` is a data frame that includes county-level election results from 2020 which we will use as calibration targets.
 
 It is important to note that the demographic and geographic variable names and levels in `surv` and `ps_cty` are identical. 
@@ -253,84 +253,27 @@ rstan::check_hmc_diagnostics(mod$fit)
 suppressWarnings(neff <- neff_ratio(mod))
 if (mean(neff) < 0.5 || min(neff) < 0.1) rlang::warn("Some parameters have low neff ratios")
 ```
-# Generate MRP Estimates
+# Generate Initial Cell-Level Estimates of Opinion
 
-Now that we have a model relating attitudes to demographic and geographic features, the next step is to generate estimates for every cell in the poststratification table. Since we are operating in a Bayesian setting, we will generate estimates for each posterior draw. The `posterior_epred()` function from `brms` allows us to generate predictions for new data, which we will use to generate estimates for each poststratification cell in `ps_cty`. This function returns an array that has dimensions $\text{(N draws)} \times \text{(N poststratification cells)} \times \text{(N outcomes)}$. This step is computationally intensive.^[3]
+Now that we have a model relating attitudes to demographic and geographic features, the next step is to generate estimates for every cell in the poststratification table. Since we are operating in a Bayesian setting, we will generate estimates for each posterior draw. The function `generate_cell_estimates()` takes the fitted model and generates predictions for each row of the poststratification table. Specifically, it computes the posterior mean and posterior standard deviation of the average response to each outcome variable in each cell of the poststratification table. This step can be computationally intensive, so `generate_cell_estimates()` offers an optional argument `draw_ids` which allows you to specify a subset of posterior draws to use for generating predictions. 
 
-[^3]: For computational efficiency, we will only use a subset of posterior draws to generate predictions. In practice, you would want to use all posterior draws, but this is less memory-intensive and faster for demonstration purposes.
-
-Formally, we observe a 3-dimensional array $\tilde{\Theta}$ with entries $\tilde{\theta}_{(m, c, j)}$ representing a draw $m$ from the posterior distribution of the share of respondents in poststratification cell $c$ who answered "yes" to question $j$.
+Formally, what this function does is summarizes the posterior distribution. First, it computes an array $\tilde{\Theta}$ that has entries $\tilde{\theta}_{(m, c, j)}$ representing a draw $m$ from the posterior distribution of the share of respondents in poststratification cell $c$ who answered "yes" to question $j$. Second, it computes the cell-level posterior mean and posterior standard deviation by taking the mean and SD across draws. Finally, it appends these summaries to the original poststratification table.
 
 
 ```{r generate-predictions, cache=TRUE}
-draw_ids <- sample(1:ndraws(mod), 100)  # subset of posterior draws to use
-
-# Generate predictions for poststratification cells. 
-# Larger poststratification tables require more compute time. 
-pred_draws <- posterior_epred(
-  mod,
-  newdata = ps_cty,
-  allow_new_levels = TRUE,
-  draw_ids = draw_ids
-)
-
-# This matrix has dimensions: 
-# (# of posterior draws) X (# poststratification cells) X (# of outcomes)
-dim(pred_draws)
-
-dimnames(pred_draws)[1] <- list(sprintf("draw_%s", 1:dim(pred_draws)[1]))
-dimnames(pred_draws)[2] <- list(sprintf("cell_%s", 1:dim(pred_draws)[2]))
+# Generate predictions for each poststratification cell
+ps_cty <- generate_cell_estimates(mod, 
+                                  ps_table = ps_cty, 
+                                  draw_ids = sample(1:ndraws(mod), 100), # sample 100 draws
+                                  outcome_suffix = "_uncalib",
+                                  se_suffix = "_uncalib_se")
+ps_cty %>% 
+  select(countyfips, state, agegrp, gender, educ, race, starts_with("bidenlegitimate"))
 ```
 
 
-## Generate Uncalibrated Poststratification Estimates 
 
-The final step of MRP is to poststratify to the level of interest. This involves taking a weighted average of the cell-level estimates, where the weights are proportional to the population counts in each poststratification cell. For example, suppose we wanted to estimate the share of people in Pennsylvania who believe that Joe Biden is the legitimate president. We obtain an estimate of this quantity by summing over all of the poststratification cells with the value `state == "PA"`:
-$$
-\begin{align}
-  \hat{\theta}^{{Biden\,Legit}}_{Pa} &= \frac{1}{M} \sum_{m=1}^{M}\sum_{c \in \text{PA}} \tilde{\theta}_{(d, c, 1)} \cdot w_c \\
-\end{align}
-$$
-where $M$ is the total number of posterior draws and $w_c$ are weights that are proportional to the population counts in each poststratification cell $c$ (and sum to 1). 
-
-
-
-
-We then have two choices. The most flexible choice for downstream analysis is to generate a cell-level summary of the posterior distribution. We can then poststratify further to the level of interest (e.g., county, state, broad demographic group) and summarize the posterior distribution of estimates for each outcome. 
-
-
-??We can use the `poststratify()` function to generate these estimates. ??
-
-### Plug-In Estimation
-
-```{r plug-in-uncalibrated}
-# get posterior mean for each cell
-pred_plugin <- apply(pred_draws, c(2, 3), mean)
-dimnames(pred_plugin)[[2]] <- dimnames(pred_draws)[[3]]  # use outcome names from model
-
-# convert to tibble
-pred_plugin <- as_tibble(pred_plugin) %>% 
-  rename_with(~ paste0(.x, "_uncalib")) %>% 
-  mutate(cell = row_number()) 
-
-# get posterior SD 
-pred_se <- apply(pred_draws, c(2, 3), sd)
-dimnames(pred_se)[[2]] <- dimnames(pred_draws)[[3]]  # use outcome names from model
-pred_se <- as_tibble(pred_se) %>% 
-  rename_with(~ paste0(.x, "_uncalib_se")) %>% 
-  mutate(cell = row_number()) 
-
-# combine predictions and SEs
-pred_plugin <- left_join(pred_plugin, pred_se, by = "cell")
-celln <- which(names(pred_plugin) == "cell")
-order <- c("cell", sort(names(pred_plugin)[-celln]))
-pred_plugin <- pred_plugin[, order] 
-
-# combine with original poststratification table
-ps_cty <- bind_cols(ps_cty, pred_plugin %>% select(-cell))
-```
-
-Let's start by visualizing the modeled relationship between the outcome and the demographic predictors. We'll start by plotting all poststratifcation cells in Pennsylvania for the Biden legitimacy outcome. Each cell represents a combination of county, age group, race, gender, and education level. 
+Let's start by visualizing the modeled relationship between the outcome and the demographic predictors in a single state. We'll start by plotting all poststratifcation cells in Pennsylvania for the Biden legitimacy outcome. Each cell represents a combination of county, age group, race, gender, and education level. 
 
 ```{r, fig.height=10, fig.width=9}
 ggplot(ps_cty %>% filter(state == "PA")) + 
@@ -350,20 +293,80 @@ ggplot(ps_cty %>% filter(state == "PA")) +
        caption = "Points are sized proportional to size in population.")
 ```
 
+## Generate Uncalibrated Poststratification Estimates
 
-The `poststratify()` function generates state-level estimates. 
+The final step of MRP is to poststratify to the level of interest. This involves taking a weighted average of the cell-level estimates, where the weights are proportional to the population counts in each poststratification cell. For example, suppose we wanted to estimate the share of people in Pennsylvania who believe that Joe Biden is the legitimate president. We obtain an estimate of this quantity by summing over all of the poststratification cells with the value `state == "PA"`:
+$$
+\begin{align}
+  \hat{\theta}^{{Biden\,Legit}}_{Pa} &= \frac{1}{M}  \sum_{m=1}^{M}\sum_{c \in \text{PA}} \tilde{\theta}_{(d, c, 1)} \cdot w_c \\
+\end{align}
+$$
+where $M$ is the total number of posterior draws and $w_c$ are weights that are proportional to the population counts in each poststratification cell $c$. We assume here that weights are normalized to sum to 1.
+
+This step is performed by the `poststratify()` function. The function takes the poststratification table, with cell-level estimates (and, optionally, standard errors) appended, along with the names of the outcome variables to poststratify, the weights to use for poststratification, and the level of aggregation (e.g., state, county) to summarize the estimates. The function returns a data frame with the poststratified estimates and standard errors for each outcome variable at the specified level of aggregation.
+ 
 
 ```{r uncalib-state, fig.height=9, fig.width=6}
 state_ests <- poststratify(ps_cty, 
                            outcomes = c(bidenlegitimate_uncalib, bidenappr_uncalib, presvote2020twoparty_uncalib), 
-                           ses = TRUE,
-                           se_suffix = "_se",
                            weight = est_prop, 
                            by = state)
 
 
 
 ggplot(state_ests) + 
+  aes(x = bidenlegitimate_uncalib, 
+      y = fct_reorder(state, bidenlegitimate_uncalib)) +
+  geom_point() + 
+  scale_x_continuous(labels = scales::percent) + 
+  labs(x = "Estimated Share Believing Biden is Legitimate",
+       y = NULL,
+       title = "Belief in Biden Legitimacy by State",
+       subtitle = "Uncalibrated MRP Estimates")
+```
+
+The `by` argument to `poststratify()` allows you to specify multiple columns using the `tidyselect` syntax that is common to `dplyr` and other tidyverse packages. For example, let's poststatify to the state $\times$ gender level.
+
+```{r uncalib-state-gender, fig.height=9, fig.width=6}
+sg_ests <- poststratify(ps_cty, 
+                        outcomes = c(bidenlegitimate_uncalib, bidenappr_uncalib, presvote2020twoparty_uncalib), 
+                        weight = est_prop, 
+                        by = c(state, gender))
+
+ggplot(sg_ests) + 
+  aes(x = bidenlegitimate_uncalib, 
+      y = fct_reorder(state, bidenlegitimate_uncalib),
+      colour = gender) +
+  geom_point() + 
+  scale_x_continuous(labels = scales::percent) + 
+  labs(x = "Estimated Share Believing Biden is Legitimate",
+       y = NULL,
+       title = "Belief in Biden Legitimacy by State/Gender",
+       subtitle = "Uncalibrated MRP Estimates")
+```
+
+## Calibrate Estimates
+
+
+    
+We then have two choices. The most flexible choice for downstream analysis is to generate a cell-level summary of the posterior distribution. We can then poststratify further to the level of interest (e.g., county, state, broad demographic group) and summarize the posterior distribution of estimates for each outcome. 
+
+
+??We can use the `poststratify()` function to generate these estimates. ??
+
+### Plug-In Uncertainty Estimation
+
+
+
+```{r state-ests-plugin-uncertainty, fig.height=9, fig.width=6}
+state_ests_uncertainty <-  poststratify(
+  ps_cty, 
+  outcomes = c(bidenlegitimate_uncalib, bidenappr_uncalib, presvote2020twoparty_uncalib), 
+  weight = est_prop, 
+  ses = TRUE,
+  by = state
+  )
+ggplot(state_ests_uncertainty) + 
   aes(x = bidenlegitimate_uncalib, 
       xmin = bidenlegitimate_uncalib - 2 * bidenlegitimate_uncalib_se,
       xmax = bidenlegitimate_uncalib + 2 * bidenlegitimate_uncalib_se,
@@ -376,6 +379,8 @@ ggplot(state_ests) +
        title = "Belief in Biden Legitimacy by State",
        subtitle = "Uncalibrated MRP Estimates")
 ```
+
+
 
 
 ### Full Bayesian Inference

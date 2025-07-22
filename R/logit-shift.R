@@ -77,7 +77,7 @@ logit_shift_internal <- function(x, w = rep(1, length(x)), target, na.rm = TRUE,
 #' Called by [logit_shift()] for each outcome.
 #'
 #' @param ps_table A data frame of poststratification cells with predictions.
-#' @param var Variable in `ps_table` storing predictions to calibrate.
+#' @param outcome CharVariable in `ps_table` storing outcome to calibrate.
 #' @param weight Weighting variable for population counts.
 #' @param geography Grouping variable for calibration (e.g., county).
 #' @param calib_target A data frame with true targets by geography.
@@ -86,48 +86,51 @@ logit_shift_internal <- function(x, w = rep(1, length(x)), target, na.rm = TRUE,
 #' @return A data frame with one row per geography and the estimated logit shift.
 #' @keywords internal
 logit_shift_single = function(ps_table,
-                              var,
+                              outcome,
                               weight,
                               geography,
                               calib_target,
                               calib_var) {
 
+  # var        <- rlang::as_name(rlang::ensym(outcome))
+  # print(sprintf("`outcome` argument evaluates to: %s", var))
+  # weight     <- rlang::as_name(rlang::ensym(weight))
+  # geography  <- rlang::as_name(rlang::ensym(geography))
+  # calib_var  <- rlang::as_name(rlang::ensym(calib_var))
 
-  # standardizing names internally
-  ps <- ps_table %>%
-    rename(pred = {{ var }}, weight = {{ weight }}, geography = {{ geography }}) %>%
-    select(pred, weight, geography)
 
-  calib_target <- calib_target %>%
-    rename(geography = {{ geography }}, calib_var = {{ calib_var }})
+  ps <- ps_table |>
+    dplyr::select(pred = all_of(outcome),
+                  weight = all_of(weight),
+                  geography = all_of(geography))
+
+  calib_target <- calib_target |>
+    dplyr::select(geography = all_of(geography),
+                  calib_var = all_of(calib_var))
 
 
   # calculate logit shift for each geography
   shifts <- unique(ps$geography) %>%
-    purrr::map( ~ {
+    furrr::future_map(\(g) {
 
       # subset PS table and target to this geography
-      tmp_ps <- filter(ps, geography == .x)
-      tmp_targ <- filter(calib_target, geography == .x) %>% dplyr::pull(calib_var)
+      tmp_ps <- filter(ps, geography == g)
+      tmp_targ <- filter(calib_target, geography == g) |> dplyr::pull(calib_var)
 
       # calculate logit shift
       if (is.na(tmp_targ) || length(tmp_targ) == 0){
         rlang::warn(c("Calibration target missing; returning logit shift = 0.",
-                      "i" = sprintf("Geography: %s ", .x),
+                      "i" = sprintf("Geography: %s ", g),
                       "i" = "This behavior is not optimal. See https://github.com/wpmarble/mrp/issues/3"))
-        data.frame(geography = .x, shift = 0)
+        shift <- 0
       } else {
         shift <- logit_shift_internal(x = tmp_ps$pred,
                                       w = tmp_ps$weight,
                                       target = tmp_targ)
-        tibble(geography = .x, shift = shift)
       }
+      tibble::tibble(!!geography := g, !!paste0(outcome, "_shift") := shift)
     })
-  shifts <- bind_rows(shifts) %>%
-    rename({{ geography }} := geography,
-           "{{ var }}_shift" := shift)
-
-  shifts
+  bind_rows(shifts)
 }
 
 
@@ -137,7 +140,7 @@ logit_shift_single = function(ps_table,
 #'  geographic targets by computing logit intercept shifts for each outcome.
 #'
 #' @param ps_table A data frame of poststratification cells with predictions.
-#' @param vars One or more outcome variables in `ps_table` to calibrate.
+#' @param outcomes One or more outcome variables in `ps_table` to calibrate.
 #'   Accepts tidyselect syntax (e.g., `voteshare_gov`, `c(voteshare_gov, voteshare_pres)`, `starts_with("voteshare")`).
 #' @param weight Weighting variable in `ps_table` storing population counts.
 #' @param geography Grouping variable found in `ps_table` and `calib_data` used
@@ -185,36 +188,37 @@ logit_shift_single = function(ps_table,
 #'                       geography = county)
 #' head(ps)
 logit_shift <- function(ps_table,
-                        vars,
+                        outcomes,
                         weight,
                         geography,
                         calib_target,
                         calib_vars){
 
   # Resolve tidyselect
-  vars <- tidyselect::eval_select(rlang::enquo(vars), ps_table)
-  var_names <- names(vars)
+  weight_var <- rlang::as_name(rlang::enquo(weight))
+  geo_var <- rlang::as_name(rlang::enquo(geography))
 
+  outcomes <- tidyselect::eval_select(rlang::enquo(outcomes), ps_table)
   calib_vars <- tidyselect::eval_select(rlang::enquo(calib_vars), calib_target)
+
+  var_names <- names(outcomes)
   calib_names <- names(calib_vars)
 
 
   if (length(var_names) != length(calib_names)) {
-    rlang::abort("Number of `vars` and `calib_vars` must match.")
+    rlang::abort("Number of `outcomes` and `calib_vars` must match.")
   }
 
   # repeatedly call logit_shift_single() then combine results
-  purrr::map2(var_names, calib_names, ~
-                logit_shift_single(
-                  ps_table = ps_table,
-                  var = !!sym(.x),
-                  weight = {{ weight }},
-                  geography = {{ geography }},
-                  calib_target = calib_target,
-                  calib_var = !!sym(.y)
-                )
-  ) %>%
-    purrr::reduce(dplyr::full_join, by = rlang::englue("{{ geography }}"))
+  purrr::map2(var_names, calib_names,
+              \(x, y)  logit_shift_single(ps_table = ps_table,
+                                          outcome = x,
+                                          weight = weight_var,
+                                          geography = geo_var,
+                                          calib_target = calib_target,
+                                          calib_var = y),
+              .progress = TRUE) |>
+    purrr::reduce(dplyr::full_join, by = geo_var)
 
 }
 
@@ -320,7 +324,7 @@ calibrate_preds <- function(ps_table,
 #' @param mod A `brmsfit` object with random intercepts by `group`.
 #' @param group Grouping variable to extract random intercept.
 #' @param tidy Return a tidy data frame? If `FALSE`, returns an array of
-#'   correlation matrices where the first dimension indexes draws from the
+#'   covariance matrices where the first dimension indexes draws from the
 #'   posterior.
 #' @param outcome_order An order for the outcome variables to return. Only used
 #'   if tidy = FALSE.
@@ -345,25 +349,25 @@ get_re_covs <- function(mod, group,
   # get pattern to extract
   pattern <- sym(sprintf("sd_%s__.*_Intercept$|cor_%s__.*_Intercept_.*_Intercept$", group, group))
 
-  out <- mod %>%
-    spread_draws(!!pattern, regex = TRUE) %>%
-    filter(.draw %in% draw_ids ) %>%
-    select(c(starts_with("."), starts_with("sd_"), starts_with("cor_"))) %>%
+  out <- mod |>
+    spread_draws(!!pattern, regex = TRUE) |>
+    filter(.draw %in% draw_ids ) |>
+    select(c(starts_with("."), starts_with("sd_"), starts_with("cor_"))) |>
     rename_with(.cols = everything(),
-                .fn = ~ {
-                  .x %>%
+                .fn = \(x) {
+                  x %>%
                     gsub(sprintf("%s|Intercept", group), "", .) %>%
                     gsub("__", "_", ., fixed = TRUE) %>%
                     gsub("__", "_", ., fixed = TRUE) %>%
                     gsub("\\_$", "", .)
                 })
 
-  out <- out %>%
+  out <- out |>
     pivot_longer(-starts_with("."),
                  names_to = "param",
                  values_to = "est")
 
-  out <- out %>%
+  out <- out |>
     mutate(
       param_og = param,
       type = case_when(
@@ -371,18 +375,16 @@ get_re_covs <- function(mod, group,
         grepl("^sd", param) ~ "sd"
       ))
 
-  # 7/22/24 -- already got rid of `group` above.
-  # todrop <- sprintf("sd_%s_|cor_%s_", group, group)
   todrop <- "sd_|cor_"
   out <- out %>%
-    mutate(param = str_remove(param, todrop))
+    mutate(param = stringr::str_remove(param, todrop))
 
 
   out <- out %>%
-    mutate(param1 = str_split(param, "_", simplify = TRUE)[,1],
-           param2 = str_split(param, "_", simplify = TRUE)[,2]) %>%
-    mutate(param2 = ifelse(param2 == "", param1, param2)) %>%
-    select(c(starts_with("."), type, param1, param2, est)) %>%
+    mutate(param1 = stringr::str_split(param, "_", simplify = TRUE)[,1],
+           param2 = stringr::str_split(param, "_", simplify = TRUE)[,2]) |>
+    mutate(param2 = ifelse(param2 == "", param1, param2)) |>
+    select(c(starts_with("."), type, param1, param2, est)) |>
     arrange(param1, param2)
 
 
@@ -395,15 +397,15 @@ get_re_covs <- function(mod, group,
     }
 
     # Reshape to array.
-    out <- out %>%
-      group_by(.draw) %>%
-      group_split() %>%
-      purrr::map(.progress = "Transforming covariance params to array",
-          .f = ~ {
-        tmp <- .x %>%
-          select(param1, param2, est) %>%
+    out <- out |>
+      group_by(.draw) |>
+      group_split() |>
+      furrr::future_map(.progress = TRUE,
+          .f = \(x) {
+        tmp <- x |>
+          select(param1, param2, est) |>
           pivot_wider(values_from = est,
-                      names_from = param2) %>%
+                      names_from = param2) |>
           as.data.frame()
         rownames(tmp) <- tmp$param1
         tmp$param1 <- NULL
@@ -435,6 +437,7 @@ get_re_covs <- function(mod, group,
 #' @param suffix The suffix for the logit shift parameters in `shift`. The
 #'   prefixes are given by `shift_vars`. For example if the outcome is `dem` then
 #'   the logit shift parameter might be stored in a variable called `dem_shift`.
+#' @export
 logit_shift_aux <- function(shift,
                             shift_vars,
                             cov,
@@ -449,19 +452,78 @@ logit_shift_aux <- function(shift,
   cov_oo_inv <- MASS::ginv(cov_oo)
   premat <- cov_uo %*% cov_oo_inv
 
-  shift_mat <- shift %>%
-    select(all_of(paste0(shift_vars, suffix))) %>%
+  shift_mat <- shift |>
+    dplyr::select(all_of(paste0(shift_vars, suffix))) |>
     as.matrix()
 
   updated_shift <- shift_mat %*% t(premat)
   colnames(updated_shift) <- paste0(colnames(updated_shift), suffix)
-  shift <- bind_cols(shift, updated_shift, .name_repair = "unique")
+  shift <- dplyr::bind_cols(shift, updated_shift, .name_repair = "unique")
 
   shift
 }
 
 
 
+#' Generate posterior mean and standard deviation for each poststratification cell
+#'
+#' Uses a fitted multivariate `brms` model to generate predictions for each row in a poststratification table.
+#' Returns the same table with added columns for posterior mean and SD of each outcome.
+#'
+#' @param model A `brmsfit` object with multivariate binary outcomes.
+#' @param ps_table A data frame of poststratification cells (must match model variables).
+#' @param draw_ids Optional vector of posterior draw indices to use. If NULL, uses all draws.
+#' @param outcome_suffix Suffix to append to posterior mean columns (default: "_uncalib").
+#' @param se_suffix Suffix to append to posterior SD columns (default: "_uncalib_se").
+#'
+#' @return A data frame with the same rows as `ps_table` and additional columns:
+#'   - `{outcome}_uncalib` (posterior mean)
+#'   - `{outcome}_uncalib_se` (posterior SD)
+#'
+#' @export
+#'
+#' @examples
+#' ## See vignettes.
+#'
+generate_cell_estimates <- function(model,
+                                    ps_table,
+                                    draw_ids = NULL,
+                                    outcome_suffix = "_uncalib",
+                                    se_suffix = "_uncalib_se") {
+
+  # Get draws: (draw x cell x outcome)
+  pred_array <- brms::posterior_epred(
+    model,
+    newdata = ps_table,
+    allow_new_levels = TRUE,
+    draw_ids = draw_ids
+  )
+
+  # Get outcome names
+  outcome_names <- dimnames(pred_array)[[3]]
+
+  # Posterior mean and SD across draws. Uses `future` parallel session if enabled
+  cell_mean <- future.apply::future_apply(pred_array, c(2, 3), mean)
+  cell_sd   <- future.apply::future_apply(pred_array, c(2, 3), sd)
+
+  dimnames(cell_mean)[[2]] <- outcome_names
+  dimnames(cell_sd)[[2]]   <- outcome_names
+
+  # Convert to tibble with cell index
+  pred_df <- tibble::as_tibble(cell_mean) %>%
+    dplyr::rename_with(\(x) paste0(x, outcome_suffix)) %>%
+    dplyr::mutate(.cell_id = dplyr::row_number())
+
+  se_df <- tibble::as_tibble(cell_sd) %>%
+    dplyr::rename_with(\(x) paste0(x, se_suffix)) %>%
+    dplyr::mutate(.cell_id = dplyr::row_number())
+
+  # Join and bind back to ps_table
+  preds <- dplyr::left_join(pred_df, se_df, by = ".cell_id") %>%
+    dplyr::select(-.cell_id)
+
+  dplyr::bind_cols(ps_table, preds)
+}
 
 
 #' Poststratify estimates
@@ -546,7 +608,7 @@ poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
 
   out <- ps_table %>%
     dplyr::summarise(dplyr::across({{ outcomes }},
-                                   ~ weighted.mean(.x, {{ weight }}, na.rm = na.rm)),
+                                   \(x) weighted.mean(x, {{ weight }}, na.rm = na.rm)),
               {{ n_out }} := sum({{ weight }}, na.rm = na.rm),
               .by = {{ by }})
 
@@ -561,8 +623,8 @@ poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
 
     out_se <- ps_table %>%
       dplyr::summarise(dplyr::across(all_of(se_vars),
-                                     ~ sqrt(sum({{ weight }}^2 * .x^2, na.rm = na.rm)
-                                            / sum({{ weight }}, na.rm = na.rm)^2 )),
+                                     \(x) sqrt(sum({{ weight }}^2 * x^2, na.rm = na.rm)
+                                               / sum({{ weight }}, na.rm = na.rm)^2 )),
                        .by = {{ by }})
     out <- left_join(out, out_se, by = rlang::englue("{{ by }}"))
   }

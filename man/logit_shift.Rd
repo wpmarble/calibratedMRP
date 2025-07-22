@@ -4,12 +4,12 @@
 \alias{logit_shift}
 \title{Compute logit shifts for multiple outcomes}
 \usage{
-logit_shift(ps_table, vars, weight, geography, calib_target, calib_vars)
+logit_shift(ps_table, outcomes, weight, geography, calib_target, calib_vars)
 }
 \arguments{
 \item{ps_table}{A data frame of poststratification cells with predictions.}
 
-\item{vars}{One or more outcome variables in \code{ps_table} to calibrate.
+\item{outcomes}{One or more outcome variables in \code{ps_table} to calibrate.
 Accepts tidyselect syntax (e.g., \code{voteshare_gov}, \code{c(voteshare_gov, voteshare_pres)}, \code{starts_with("voteshare")}).}
 
 \item{weight}{Weighting variable in \code{ps_table} storing population counts.}

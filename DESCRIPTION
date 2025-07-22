@@ -20,6 +20,8 @@ Config/testthat/edition: 3
 Imports: 
     brms,
     dplyr,
+    furrr,
+    future.apply,
     MASS,
     purrr,
     rlang,
