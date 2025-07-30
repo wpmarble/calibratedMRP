@@ -289,7 +289,7 @@ calibrate_preds <- function(ps_table,
 
   # Resolve tidyselect
   pred_vars <- tidyselect::eval_select(rlang::enquo(preds), ps_table) |> names()
-  geo_var <- rlang::englue("{{ geography }}")
+  geo_var  <- rlang::as_name(rlang::ensym(geography))
   out <- dplyr::left_join(ps_table, shifts, by = geo_var)
 
   # Recalibrate each prediction column manually
@@ -321,7 +321,7 @@ calibrate_preds <- function(ps_table,
 #' names. If `tidy = FALSE`, an array of covariance matrices is returned (one
 #' for each draw from the posterior).
 #'
-#' @param mod A `brmsfit` object with random intercepts by `group`.
+#' @param model A `brmsfit` object with random intercepts by `group`.
 #' @param group Grouping variable to extract random intercept.
 #' @param tidy Return a tidy data frame? If `FALSE`, returns an array of
 #'   covariance matrices where the first dimension indexes draws from the
@@ -333,23 +333,23 @@ calibrate_preds <- function(ps_table,
 #' @importFrom tidybayes spread_draws
 #' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols `%>%`
 #' @export
-get_re_covs <- function(mod, group,
+get_re_covs <- function(model, group,
                         tidy = FALSE,
                         outcome_order = NULL,
                         draw_ids = NULL){
 
-  if (!"brmsfit" %in% class(mod)) {
-    rlang::abort("mod must be a brmsfit object.")
+  if (!"brmsfit" %in% class(model)) {
+    rlang::abort("model must be a brmsfit object.")
   }
 
   if (is.null(draw_ids)) {
-    draw_ids <- 1:ndraws(mod)
+    draw_ids <- 1:ndraws(model)
   }
 
   # get pattern to extract
   pattern <- sym(sprintf("sd_%s__.*_Intercept$|cor_%s__.*_Intercept_.*_Intercept$", group, group))
 
-  out <- mod |>
+  out <- model |>
     spread_draws(!!pattern, regex = TRUE) |>
     filter(.draw %in% draw_ids ) |>
     select(c(starts_with("."), starts_with("sd_"), starts_with("cor_"))) |>
@@ -530,6 +530,14 @@ generate_cell_estimates <- function(model,
     # Join and bind back to ps_table
     preds <- dplyr::left_join(pred_df, se_df, by = ".cell_id") %>%
       dplyr::select(-.cell_id)
+
+
+    # reorder columns
+    ordered_names <- as.vector(rbind(
+      paste0(outcome_names, outcome_suffix),
+      paste0(outcome_names, se_suffix)
+    ))
+    preds <- preds[, ordered_names]
 
     dplyr::bind_cols(ps_table, preds)
   } else {
