@@ -261,12 +261,13 @@ Formally, what this function does is summarizes the posterior distribution. Firs
 
 
 ```{r generate-predictions, cache=TRUE}
+draw_ids <- sample(1:ndraws(mod), 100)
 # Generate predictions for each poststratification cell
-ps_cty <- generate_cell_estimates(mod, 
-                                  ps_table = ps_cty, 
-                                  draw_ids = sample(1:ndraws(mod), 100), # sample 100 draws
-                                  outcome_suffix = "_uncalib",
-                                  se_suffix = "_uncalib_se")
+blah <- generate_cell_estimates(mod, 
+                                ps_table = ps_cty, 
+                                draw_ids = draw_ids,
+                                se_suffix = "_se",
+                                summarize = FALSE)
 ps_cty %>% 
   select(countyfips, state, agegrp, gender, educ, race, starts_with("bidenlegitimate"))
 ```

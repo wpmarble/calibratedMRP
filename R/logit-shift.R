@@ -134,7 +134,7 @@ logit_shift_single = function(ps_table,
 }
 
 
-#' Compute logit shifts for multiple outcomes
+#' Compute logit shifts for multiple outcomes given target marginals
 #'
 #'  Calibrate multiple sets of model-based predictions to match known
 #'  geographic targets by computing logit intercept shifts for each outcome.
@@ -147,7 +147,7 @@ logit_shift_single = function(ps_table,
 #' for calibration.
 #' @param calib_target A data frame with true targets by `geography`.
 #' @param calib_vars Variables in `calib_target` storing true targets.
-#'   `vars` and `calib_vars` should be in the same order. Accepts tidyselect syntax.
+#'   `outcomes` and `calib_vars` must be in the same order. Accepts tidyselect syntax.
 #'
 #' @return A data frame with logit shifts for each prediction variable and geography.
 #' @export
@@ -285,7 +285,7 @@ calibrate_preds <- function(ps_table,
                             preds,
                             geography,
                             shift_suffix = "shift",
-                            calib_suffix = "calib"){
+                            calib_suffix = "calib") {
 
   # Resolve tidyselect
   pred_vars <- tidyselect::eval_select(rlang::enquo(preds), ps_table) |> names()
@@ -447,7 +447,7 @@ logit_shift_aux <- function(shift,
   # The update is \Sigma_uo \Sigma_oo^{-1} shift_o
   # where Sigma_uo is the cross-covariance of uncalibrated and calibrated outcomes,
   # Sigma_oo is the covariance of calibrated outcomes, and shift_o is the
-  cov_uo <- cov[!(rownames(cov) %in% shift_vars), shift_vars,drop = FALSE]
+  cov_uo <- cov[!(rownames(cov) %in% shift_vars), shift_vars, drop = FALSE]
   cov_oo <- cov[shift_vars, shift_vars]
   cov_oo_inv <- MASS::ginv(cov_oo)
   premat <- cov_uo %*% cov_oo_inv
@@ -465,16 +465,22 @@ logit_shift_aux <- function(shift,
 
 
 
-#' Generate posterior mean and standard deviation for each poststratification cell
+#' Generate estimates for each poststratification cell
 #'
-#' Uses a fitted multivariate `brms` model to generate predictions for each row in a poststratification table.
-#' Returns the same table with added columns for posterior mean and SD of each outcome.
+#' Uses a fitted multivariate `brms` model to generate predictions for each row
+#' in a poststratification table. There are two return options. The first applies if
+#' `summarize = TRUE` (the default), in which case the function returns the poststratification
+#' table with added columns for posterior mean and SD of each outcome. The second
+#' applies if `summarize = FALSE`, in which case the function returns a 3D array that
+#' contains each draw from the posterior for each cell and outcome.
 #'
 #' @param model A `brmsfit` object with multivariate binary outcomes.
 #' @param ps_table A data frame of poststratification cells (must match model variables).
 #' @param draw_ids Optional vector of posterior draw indices to use. If NULL, uses all draws.
-#' @param outcome_suffix Suffix to append to posterior mean columns (default: "_uncalib").
-#' @param se_suffix Suffix to append to posterior SD columns (default: "_uncalib_se").
+#' @param outcome_suffix Optional suffix to append to posterior mean columns. Defaults to no suffix.
+#' @param se_suffix Suffix to append to posterior SD columns. Defaults to "_se".
+#' @param summarize Should the function return a summary data frame with posterior
+#'    means and SDs? If `FALSE`, returns an array of draws from the posterior.
 #'
 #' @return A data frame with the same rows as `ps_table` and additional columns:
 #'   - `{outcome}_uncalib` (posterior mean)
@@ -488,8 +494,9 @@ logit_shift_aux <- function(shift,
 generate_cell_estimates <- function(model,
                                     ps_table,
                                     draw_ids = NULL,
-                                    outcome_suffix = "_uncalib",
-                                    se_suffix = "_uncalib_se") {
+                                    outcome_suffix = "",
+                                    se_suffix = "_se",
+                                    summarize = TRUE) {
 
   # Get draws: (draw x cell x outcome)
   pred_array <- brms::posterior_epred(
@@ -502,27 +509,35 @@ generate_cell_estimates <- function(model,
   # Get outcome names
   outcome_names <- dimnames(pred_array)[[3]]
 
-  # Posterior mean and SD across draws. Uses `future` parallel session if enabled
-  cell_mean <- future.apply::future_apply(pred_array, c(2, 3), mean)
-  cell_sd   <- future.apply::future_apply(pred_array, c(2, 3), sd)
+  if (summarize) {x
 
-  dimnames(cell_mean)[[2]] <- outcome_names
-  dimnames(cell_sd)[[2]]   <- outcome_names
+    # Posterior mean and SD across draws. Uses `future` parallel session if enabled
+    cell_mean <- future.apply::future_apply(pred_array, c(2, 3), mean)
+    cell_sd   <- future.apply::future_apply(pred_array, c(2, 3), sd)
 
-  # Convert to tibble with cell index
-  pred_df <- tibble::as_tibble(cell_mean) %>%
-    dplyr::rename_with(\(x) paste0(x, outcome_suffix)) %>%
-    dplyr::mutate(.cell_id = dplyr::row_number())
+    dimnames(cell_mean)[[2]] <- outcome_names
+    dimnames(cell_sd)[[2]]   <- outcome_names
 
-  se_df <- tibble::as_tibble(cell_sd) %>%
-    dplyr::rename_with(\(x) paste0(x, se_suffix)) %>%
-    dplyr::mutate(.cell_id = dplyr::row_number())
+    # Convert to tibble with cell index
+    pred_df <- tibble::as_tibble(cell_mean) %>%
+      dplyr::rename_with(\(x) paste0(x, outcome_suffix)) %>%
+      dplyr::mutate(.cell_id = dplyr::row_number())
 
-  # Join and bind back to ps_table
-  preds <- dplyr::left_join(pred_df, se_df, by = ".cell_id") %>%
-    dplyr::select(-.cell_id)
+    se_df <- tibble::as_tibble(cell_sd) %>%
+      dplyr::rename_with(\(x) paste0(x, se_suffix)) %>%
+      dplyr::mutate(.cell_id = dplyr::row_number())
 
-  dplyr::bind_cols(ps_table, preds)
+    # Join and bind back to ps_table
+    preds <- dplyr::left_join(pred_df, se_df, by = ".cell_id") %>%
+      dplyr::select(-.cell_id)
+
+    dplyr::bind_cols(ps_table, preds)
+  } else {
+     dimnames(pred_array)[[1]] <- draw_ids
+     dimnames(pred_array)[[2]] <- seq_len(dim(pred_array)[2])
+     names(dimnames(pred_array)) <- c("draw", ".cell_id", "outcome")
+     pred_array
+  }
 }
 
 
