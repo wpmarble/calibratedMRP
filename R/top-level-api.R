@@ -14,6 +14,18 @@ calibrate_mrp <- function(model,
   if (class(mod) != "brmsfit") rlang::abort("`mod` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
   if (is.null(draw_ids)) draw_ids <- seq_len(ndraws(mod))
+
+
+  # capture NSE inputs
+  weight_quo <- rlang::enquo(weight)
+  geo_quo <- rlang::enquo(geography)
+  outcomes_quo <- rlang::enquo(outcomes)
+
+  # resolve to strings
+  weight_var <- rlang::as_name(weight_quo)
+  geo_var <- rlang::as_name(geo_quo)
+
+
   if (is.null(outcomes)) {
     outcomes <- mod$formula[[2]]
     rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
@@ -22,8 +34,8 @@ calibrate_mrp <- function(model,
   if (!any(outcomes %in% names(targets))) {
       rlang::abort(c("At least one variable in `outcomes` must be present in `targets` data frame to perform calibration.",
                      "*" = sprintf("Outcome variables: %s", paste(outcomes, collapse = ", ")),
-                     "*" = sprintf("Columns in `targets`: %s", paste(names(targets), collapse = ", ")),
-                     "i" = "brms automatically removes underscores from variable names; you may need to rename variables in `targets` to match."))
+                     "*" = sprintf("`targets` variables: %s", paste(names(targets), collapse = ", ")),
+                     "i" = "brms automatically removes underscores from variable names; maybe you need to rename variables in `targets` to match?"))
   } else {
     calib_vars <- intersect(outcomes, names(targets))
     rlang::inform(c("Using the following variables for calibration: ",
@@ -60,3 +72,12 @@ calibrate_mrp <- function(model,
     ps_table
   }
 }
+
+#
+# blah <- calibrate_mrp(model = mod,
+#                       ps_table = ps_cty %>% select(-c(bidenlegitimate:presvote2020twoparty_se)),
+#                       outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
+#                       weight = est_n,
+#                       targets = targets,
+#                       geography = "countyfips",
+#                       method = "plugin")

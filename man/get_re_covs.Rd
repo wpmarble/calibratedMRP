@@ -4,15 +4,15 @@
 \alias{get_re_covs}
 \title{Extract covariance of random effects across outcomes}
 \usage{
-get_re_covs(mod, group, tidy = FALSE, outcome_order = NULL, draw_ids = NULL)
+get_re_covs(model, group, tidy = FALSE, outcome_order = NULL, draw_ids = NULL)
 }
 \arguments{
-\item{mod}{A \code{brmsfit} object with random intercepts by \code{group}.}
+\item{model}{A \code{brmsfit} object with random intercepts by \code{group}.}
 
 \item{group}{Grouping variable to extract random intercept.}
 
 \item{tidy}{Return a tidy data frame? If \code{FALSE}, returns an array of
-correlation matrices where the first dimension indexes draws from the
+covariance matrices where the first dimension indexes draws from the
 posterior.}
 
 \item{outcome_order}{An order for the outcome variables to return. Only used

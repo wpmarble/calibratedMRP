@@ -464,15 +464,17 @@ logit_shift_aux <- function(shift,
 }
 
 
-
 #' Generate estimates for each poststratification cell
 #'
-#' Uses a fitted multivariate `brms` model to generate predictions for each row
-#' in a poststratification table. There are two return options. The first applies if
-#' `summarize = TRUE` (the default), in which case the function returns the poststratification
-#' table with added columns for posterior mean and SD of each outcome. The second
-#' applies if `summarize = FALSE`, in which case the function returns a 3D array that
-#' contains each draw from the posterior for each cell and outcome.
+#' Uses a fitted multivariate \code{brms} model to generate predictions for each row
+#' in a poststratification table. Internally, the function uses \link[brms:posterior_epred]{brms::posterior_epred}
+#' to generate draws from the posterior for each cell. There are two return options. If
+#' \code{summarize = TRUE} (the default), the function summarizes the posterior draws
+#' and returns the poststratification
+#' table with added columns for posterior mean and SD of each outcome.
+#' If \code{summarize = FALSE}, the function returns a 3D array that
+#' contains each draw from the posterior for each cell and outcome. In this case,
+#' the function is essentially a wrapper around \link[brms:posterior_epred]{brms::posterior_epred}.
 #'
 #' @param model A `brmsfit` object with multivariate binary outcomes.
 #' @param ps_table A data frame of poststratification cells (must match model variables).
@@ -482,9 +484,14 @@ logit_shift_aux <- function(shift,
 #' @param summarize Should the function return a summary data frame with posterior
 #'    means and SDs? If `FALSE`, returns an array of draws from the posterior.
 #'
-#' @return A data frame with the same rows as `ps_table` and additional columns:
-#'   - `{outcome}_uncalib` (posterior mean)
-#'   - `{outcome}_uncalib_se` (posterior SD)
+#' @return If \code{summarize = TRUE}, returns `ps_table` with additional columns
+#' for outcome posterior means and posterior standard deviations.
+#'  For example, if the outcomes in the `brms` model are `voteshare` and `turnout`
+#'  and default suffix arguments are used, the addition columns will be called
+#'  `voteshare`,`voteshare_se`, `turnout`, and `turnout_se`.
+#'
+#'   If \code{summarize = FALSE}, a 3D array with dimensions
+#'   \code{N draws} \eqn{\times} \code{N cells} \eqn{\times} \code{N outcomes}.
 #'
 #' @export
 #'
@@ -498,25 +505,65 @@ generate_cell_estimates <- function(model,
                                     se_suffix = "_se",
                                     summarize = TRUE) {
 
-  # Get draws: (draw x cell x outcome)
-  pred_array <- brms::posterior_epred(
-    model,
-    newdata = ps_table,
-    allow_new_levels = TRUE,
-    draw_ids = draw_ids
-  )
+  if (!inherits(model, "brmsfit")) rlang::stop("`model` must be a brmsfit object.")
+
+
+
+
 
   # Get outcome names
   outcome_names <- dimnames(pred_array)[[3]]
 
-  if (summarize) {x
+  if (summarize) {
 
-    # Posterior mean and SD across draws. Uses `future` parallel session if enabled
-    cell_mean <- future.apply::future_apply(pred_array, c(2, 3), mean)
-    cell_sd   <- future.apply::future_apply(pred_array, c(2, 3), sd)
+     # summarize in batches of 100 draws from posterior to reduce memory requirements
+    batch_size <- 100
+    all_draws <- if (is.null(draw_ids)) seq_len(brms::ndraws(model)) else draw_ids
+    n_batches <- ceiling(length(all_draws) / batch_size)
 
-    dimnames(cell_mean)[[2]] <- outcome_names
-    dimnames(cell_sd)[[2]]   <- outcome_names
+    running_mean <- NULL
+    running_M2   <- NULL
+    n_total      <- 0
+
+
+    for (i in seq_len(n_batches)) {
+      batch_ids <- all_draws[(((i - 1) * batch_size) + 1):min(i * batch_size, length(all_draws))]
+
+      # Get draws: (draw x cell x outcome)
+      pred_array <- brms::posterior_epred(
+        model,
+        newdata = ps_table,
+        allow_new_levels = TRUE,
+        draw_ids = batch_ids
+      )
+
+      # Summarize batch
+      batch_mean <- apply(pred_array, c(2, 3), mean)
+      batch_var  <- apply(pred_array, c(2, 3), var)
+
+      n_batch    <- length(batch_ids)
+      M2_batch   <- batch_var * (n_batch - 1)
+
+      if (is.null(running_mean)) {
+        # First batch
+        running_mean <- batch_mean
+        running_M2   <- M2_batch
+        n_total      <- n_batch
+      } else {
+        delta <- batch_mean - running_mean
+        new_n <- n_total + n_batch
+
+        running_mean <- (n_total * running_mean + n_batch * batch_mean) / new_n
+        running_M2   <- running_M2 + M2_batch + (delta^2) * n_total * n_batch / new_n
+        n_total <- new_n
+      }
+    }
+
+    # Final posterior SD
+    cell_sd <- sqrt(running_M2 / (n_total - 1))
+    cell_mean <- running_mean
+
+
 
     # Convert to tibble with cell index
     pred_df <- tibble::as_tibble(cell_mean) %>%
@@ -538,13 +585,21 @@ generate_cell_estimates <- function(model,
       paste0(outcome_names, se_suffix)
     ))
     preds <- preds[, ordered_names]
-
     dplyr::bind_cols(ps_table, preds)
   } else {
-     dimnames(pred_array)[[1]] <- draw_ids
-     dimnames(pred_array)[[2]] <- seq_len(dim(pred_array)[2])
-     names(dimnames(pred_array)) <- c("draw", ".cell_id", "outcome")
-     pred_array
+
+    # Get draws: (draw x cell x outcome)
+    pred_array <- brms::posterior_epred(
+      model,
+      newdata = ps_table,
+      allow_new_levels = TRUE,
+      draw_ids = draw_ids
+    )
+
+    dimnames(pred_array)[[1]] <- draw_ids
+    dimnames(pred_array)[[2]] <- seq_len(dim(pred_array)[2])
+    names(dimnames(pred_array)) <- c("draw", ".cell_id", "outcome")
+    pred_array
   }
 }
 

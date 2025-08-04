@@ -2,7 +2,7 @@
 % Please edit documentation in R/logit-shift.R
 \name{logit_shift}
 \alias{logit_shift}
-\title{Compute logit shifts for multiple outcomes}
+\title{Compute logit shifts for multiple outcomes given target marginals}
 \usage{
 logit_shift(ps_table, outcomes, weight, geography, calib_target, calib_vars)
 }
@@ -20,7 +20,7 @@ for calibration.}
 \item{calib_target}{A data frame with true targets by \code{geography}.}
 
 \item{calib_vars}{Variables in \code{calib_target} storing true targets.
-\code{vars} and \code{calib_vars} should be in the same order. Accepts tidyselect syntax.}
+\code{outcomes} and \code{calib_vars} must be in the same order. Accepts tidyselect syntax.}
 }
 \value{
 A data frame with logit shifts for each prediction variable and geography.

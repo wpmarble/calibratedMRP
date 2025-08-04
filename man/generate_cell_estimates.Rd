@@ -2,14 +2,15 @@
 % Please edit documentation in R/logit-shift.R
 \name{generate_cell_estimates}
 \alias{generate_cell_estimates}
-\title{Generate posterior mean and standard deviation for each poststratification cell}
+\title{Generate estimates for each poststratification cell}
 \usage{
 generate_cell_estimates(
   model,
   ps_table,
   draw_ids = NULL,
-  outcome_suffix = "_uncalib",
-  se_suffix = "_uncalib_se"
+  outcome_suffix = "",
+  se_suffix = "_se",
+  summarize = TRUE
 )
 }
 \arguments{
@@ -19,20 +20,33 @@ generate_cell_estimates(
 
 \item{draw_ids}{Optional vector of posterior draw indices to use. If NULL, uses all draws.}
 
-\item{outcome_suffix}{Suffix to append to posterior mean columns (default: "_uncalib").}
+\item{outcome_suffix}{Optional suffix to append to posterior mean columns. Defaults to no suffix.}
 
-\item{se_suffix}{Suffix to append to posterior SD columns (default: "_uncalib_se").}
+\item{se_suffix}{Suffix to append to posterior SD columns. Defaults to "_se".}
+
+\item{summarize}{Should the function return a summary data frame with posterior
+means and SDs? If \code{FALSE}, returns an array of draws from the posterior.}
 }
 \value{
-A data frame with the same rows as \code{ps_table} and additional columns:
-\itemize{
-\item \verb{\{outcome\}_uncalib} (posterior mean)
-\item \verb{\{outcome\}_uncalib_se} (posterior SD)
-}
+If \code{summarize = TRUE}, returns \code{ps_table} with additional columns
+for outcome posterior means and posterior standard deviations.
+For example, if the outcomes in the \code{brms} model are \code{voteshare} and \code{turnout}
+and default suffix arguments are used, the addition columns will be called
+\code{voteshare},\code{voteshare_se}, \code{turnout}, and \code{turnout_se}.
+
+If \code{summarize = FALSE}, a 3D array with dimensions
+\code{N draws} \eqn{\times} \code{N cells} \eqn{\times} \code{N outcomes}.
 }
 \description{
-Uses a fitted multivariate \code{brms} model to generate predictions for each row in a poststratification table.
-Returns the same table with added columns for posterior mean and SD of each outcome.
+Uses a fitted multivariate \code{brms} model to generate predictions for each row
+in a poststratification table. Internally, the function uses \link[brms:posterior_epred]{brms::posterior_epred}
+to generate draws from the posterior for each cell. There are two return options. If
+\code{summarize = TRUE} (the default), the function summarizes the posterior draws
+and returns the poststratification
+table with added columns for posterior mean and SD of each outcome.
+If \code{summarize = FALSE}, the function returns a 3D array that
+contains each draw from the posterior for each cell and outcome. In this case,
+the function is essentially a wrapper around \link[brms:posterior_epred]{brms::posterior_epred}.
 }
 \examples{
 ## See vignettes.
