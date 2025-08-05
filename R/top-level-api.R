@@ -1,5 +1,24 @@
 
 
+# model <- mod
+# ps_table <- ps_cty %>% slice(1:1000)
+# weight <- "est_n"
+# # targets <- targets %>% rename(presvote2020twoparty = pres2020_2pty)
+# geography <- "countyfips"
+# method <- "plugin"
+# uncertainty <- "approximate"
+#
+#
+#
+# blah <- calibrate_mrp(model = mod,
+#                       ps_table = ps_cty %>% select(-c(bidenlegitimate:presvote2020twoparty_se)),
+#                       outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
+#                       weight = est_n,
+#                       targets = targets,
+#                       geography = "countyfips",
+#                       method = "plugin")
+
+
 calibrate_mrp <- function(model,
                           ps_table,
                           weight,
@@ -54,7 +73,8 @@ calibrate_mrp <- function(model,
     covs <- apply(covs, c(2,3), mean, simplify = TRUE)
 
     # calculate logit shifts for observed variables
-    shifts <- logit_shift(ps_table, outcomes = calib_vars,
+    shifts <- logit_shift(ps_table,
+                          outcomes = calib_vars,
                           calib_target = targets,
                           weight = !!weight,
                           geography = !!geography,
@@ -72,12 +92,3 @@ calibrate_mrp <- function(model,
     ps_table
   }
 }
-
-#
-# blah <- calibrate_mrp(model = mod,
-#                       ps_table = ps_cty %>% select(-c(bidenlegitimate:presvote2020twoparty_se)),
-#                       outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
-#                       weight = est_n,
-#                       targets = targets,
-#                       geography = "countyfips",
-#                       method = "plugin")

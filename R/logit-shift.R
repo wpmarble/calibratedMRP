@@ -483,6 +483,15 @@ logit_shift_aux <- function(shift,
 #' @param se_suffix Suffix to append to posterior SD columns. Defaults to "_se".
 #' @param summarize Should the function return a summary data frame with posterior
 #'    means and SDs? If `FALSE`, returns an array of draws from the posterior.
+#' @param control A list of control parameters. See details for list of supported
+#' controls.
+#'
+#' @details
+#' This function can be memory and computationally intensive, especially when
+#' working with large poststratification table and many posterior draws. To reduce
+#' memory usage, the function processes the posterior samples in batches, which is
+#' controlled by the `batch_size` item in the `control` list.
+#'
 #'
 #' @return If \code{summarize = TRUE}, returns `ps_table` with additional columns
 #' for outcome posterior means and posterior standard deviations.
@@ -495,6 +504,8 @@ logit_shift_aux <- function(shift,
 #'
 #' @export
 #'
+#' @importFrom progress progress_bar
+#'
 #' @examples
 #' ## See vignettes.
 #'
@@ -503,21 +514,34 @@ generate_cell_estimates <- function(model,
                                     draw_ids = NULL,
                                     outcome_suffix = "",
                                     se_suffix = "_se",
-                                    summarize = TRUE) {
+                                    summarize = TRUE,
+                                    control = list(batch_size = 50)) {
 
-  if (!inherits(model, "brmsfit")) rlang::stop("`model` must be a brmsfit object.")
-
-
-
-
+  if (!inherits(model, "brmsfit")) rlang::abort("`model` must be a brmsfit object.")
 
   # Get outcome names
-  outcome_names <- dimnames(pred_array)[[3]]
+  outcome_names <- formula(model)[2][[1]]
 
+  # check that ps_table doesn't contain outcome columns (when summarizing)
+  if (summarize && any(outcome_names %in% names(ps_table))) {
+    name_conflicts <- outcome_names[outcome_names %in% names(ps_table)]
+    rlang::abort(c("`ps_table` already contains outcome columns:",
+                   "*" = paste0("Found: ", paste(name_conflicts, collapse = ", ")),
+                   "i" = "Rename or remove these columns from `ps_table`"))
+  } else {
+    rlang::inform(c("Generating estimates for the following outcomes: ",
+                    "*" = paste0(outcome_names, collapse = ", ")))
+  }
+
+
+
+  # summarize posterior
   if (summarize) {
 
-     # summarize in batches of 100 draws from posterior to reduce memory requirements
-    batch_size <- 100
+
+
+    # process posterior samples in batches to reduce memory requirement
+    batch_size <- control$batch_size
     all_draws <- if (is.null(draw_ids)) seq_len(brms::ndraws(model)) else draw_ids
     n_batches <- ceiling(length(all_draws) / batch_size)
 
@@ -525,6 +549,15 @@ generate_cell_estimates <- function(model,
     running_M2   <- NULL
     n_total      <- 0
 
+    # initialize progress bar
+    pb <- progress::progress_bar$new(
+      format = "[:bar] :percent",
+      show_after = 0,
+      total = n_batches,
+      clear = FALSE,
+      width = 60
+    )
+    pb$tick(0)
 
     for (i in seq_len(n_batches)) {
       batch_ids <- all_draws[(((i - 1) * batch_size) + 1):min(i * batch_size, length(all_draws))]
@@ -557,6 +590,9 @@ generate_cell_estimates <- function(model,
         running_M2   <- running_M2 + M2_batch + (delta^2) * n_total * n_batch / new_n
         n_total <- new_n
       }
+
+
+      pb$tick()  # update progress bar
     }
 
     # Final posterior SD
