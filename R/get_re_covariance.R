@@ -19,6 +19,7 @@
 #'   if tidy = FALSE.
 #' @param draw_ids An integer vector specifying the posterior draws to be used.
 #'   If NULL (the default), all draws are used.
+#' @param show_progress Show a progress bar while constructing array? Applies if `tidy = FALSE`
 #' @importFrom tidybayes spread_draws
 #' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols `%>%`
 #' @export
@@ -27,7 +28,8 @@ get_re_covariance <- function(model,
                               group,
                               tidy = FALSE,
                               outcome_order = NULL,
-                              draw_ids = NULL) {
+                              draw_ids = NULL,
+                              show_progress = FALSE) {
 
 
   if (!"brmsfit" %in% class(model)) {
@@ -92,7 +94,7 @@ get_re_covariance <- function(model,
     out <- out |>
       group_by(.draw) |>
       group_split() |>
-      furrr::future_map(.progress = TRUE,
+      furrr::future_map(.progress = show_progress,
                         .f = \(x) {
                           tmp <- x |>
                             select(param1, param2, est) |>
