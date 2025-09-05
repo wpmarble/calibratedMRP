@@ -201,7 +201,6 @@ calibrate_mrp <- function(model,
     if (posterior_summary) {
       res <- res %>%
         group_by(.rowid) %>%
-
         summarise(across(-.draw, list(
           mean = ~ mean(.x),
           se = ~ sd(.x)

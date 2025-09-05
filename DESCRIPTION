@@ -27,5 +27,6 @@ Imports:
     rlang,
     tibble,
     tidybayes,
-    tidyselect
+    tidyselect,
+    progress
 VignetteBuilder: knitr

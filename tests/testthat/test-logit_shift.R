@@ -55,11 +55,11 @@ test_that("logit_shift_single computes correct shifts per geography", {
 
   shifts <- logit_shift_single(
     ps_table = ps,
-    var = pred,
-    weight = weight,
-    geography = county,
+    outcome = "pred",
+    weight = "weight",
+    geography = "county",
     calib_target = calib,
-    calib_var = target
+    calib_var = "target"
   )
 
   expect_named(shifts, c("county", "pred_shift"))
@@ -91,11 +91,11 @@ test_that("logit_shift_single handles missing targets gracefully", {
   expect_warning(
     shifts <- logit_shift_single(
       ps_table = ps,
-      var = pred,
-      weight = weight,
-      geography = county,
+      outcome = "pred",
+      weight = "weight",
+      geography = "county",
       calib_target = calib,
-      calib_var = target
+      calib_var = "target"
     )
   )
   expect_equal(shifts$pred_shift, 0)
