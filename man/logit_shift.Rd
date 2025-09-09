@@ -48,7 +48,7 @@ targets <- tibble::tibble(
 ## Compute logit shifts for both outcomes
 shifts <- logit_shift(
   ps_table = ps,
-  vars = c(pred_vote, pred_turnout),
+  outcomes = c(pred_vote, pred_turnout),
   weight = weight,
   geography = county,
   calib_target = targets,

@@ -21,7 +21,9 @@
 #'   If NULL (the default), all draws are used.
 #' @param show_progress Show a progress bar while constructing array? Applies if `tidy = FALSE`
 #' @importFrom tidybayes spread_draws
-#' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols `%>%`
+#' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols `%>%` case_when
+#' @importFrom tidyr pivot_longer pivot_wider
+#' @importFrom tidyselect everything starts_with
 #' @export
 
 get_re_covariance <- function(model,
@@ -37,7 +39,7 @@ get_re_covariance <- function(model,
   }
 
   if (is.null(draw_ids)) {
-    draw_ids <- 1:ndraws(model)
+    draw_ids <- 1:posterior::ndraws(model)
   }
 
   # get pattern to extract
@@ -49,11 +51,10 @@ get_re_covariance <- function(model,
     select(c(starts_with("."), starts_with("sd_"), starts_with("cor_"))) |>
     rename_with(.cols = everything(),
                 .fn = \(x) {
-                  x %>%
-                    gsub(sprintf("%s|Intercept", group), "", .) %>%
-                    gsub("__", "_", ., fixed = TRUE) %>%
-                    gsub("__", "_", ., fixed = TRUE) %>%
-                    gsub("\\_$", "", .)
+                  x <- gsub(sprintf("%s|Intercept", group), "", x)
+                  x <-  gsub("__", "_", x, fixed = TRUE)
+                  x <-  gsub("__", "_", x, fixed = TRUE)
+                  gsub("\\_$", "", x)
                 })
 
   out <- out |>

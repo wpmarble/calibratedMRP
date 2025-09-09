@@ -82,7 +82,7 @@ poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
 
   out <- ps_table %>%
     dplyr::summarise(dplyr::across({{ outcomes }},
-                                   \(x) weighted.mean(x, {{ weight }}, na.rm = na.rm)),
+                                   \(x) stats::weighted.mean(x, {{ weight }}, na.rm = na.rm)),
                      {{ n_out }} := sum({{ weight }}, na.rm = na.rm),
                      .by = {{ by }})
 

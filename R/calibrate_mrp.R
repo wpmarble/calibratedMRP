@@ -44,6 +44,8 @@
 #'  Plug-in estimates use posterior means of predictions and correlations across outcomes
 #'  to compute logit shifts for calibration. Bayesian estimates compute the logit shifts
 #'  separately for each posterior draw, which are then summarized. Defaults to `"plugin"`.
+#' @param posterior_summary If `method = "bayes"`, should the function return all
+#'  draws from the posterior or summarize and return the posterior mean and SD?
 #' @param uncertainty Method for uncertainty estimation. One of `"approximate"` (default),
 #' `"bayes"`, or `"none"`. Currently ignored.
 #' @param draw_ids Optional vector of posterior draw indices to use. Defaults to all posterior draws.
@@ -54,8 +56,12 @@
 #' 2) a data frame called `logit_shifts` storing the estimated intercept-shift
 #' parameters that were used to perform the calibration. If `method = "plugin"`,
 #' the outputs will be posterior means and posterior standard deviations.
-#'  will have class `calibrated_plugin` and include one additional column for each outcome
+#' If `method = "bayes"` and `posterior_summary = FALSE`, the outputs will include
+#' all posterior draws, with a `.draw` column indicating the draw index. In this
+#' case value returned has class `calibrated_draws`; otherwise it has class
+#' `calibrated_summary`.
 #'
+#' @importFrom dplyr summarise group_by mutate select across bind_rows full_join row_number
 #' @export
 #'
 #' @examples
@@ -78,7 +84,7 @@ calibrate_mrp <- function(model,
                           ) {
   if (class(mod) != "brmsfit") rlang::abort("`mod` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
-  if (is.null(draw_ids)) draw_ids <- seq_len(ndraws(mod))
+  if (is.null(draw_ids)) draw_ids <- seq_len(posterior::ndraws(mod))
 
 
   # capture NSE inputs
@@ -144,7 +150,7 @@ calibrate_mrp <- function(model,
   # full bayes version
   if (method == "bayes") {
 
-    ps_table <- ps_table %>%
+    ps_table <- ps_table |>
       mutate(.rowid = row_number())
 
     # get posterior draws of cell-level estimates
@@ -153,7 +159,7 @@ calibrate_mrp <- function(model,
                                         draw_ids = draw_ids,
                                         summarize = FALSE)
 
-    ps_table_clean <- ps_table %>%
+    ps_table_clean <- ps_table |>
       select(.rowid, all_of(geo_var), all_of(weight_var))
 
     res <- list()
@@ -192,33 +198,33 @@ calibrate_mrp <- function(model,
                                     shifts = shifts,
                                     preds = outcomes,
                                     geography = !!geo_var)
-      res[[i]] <- ps_table_i %>%
+      res[[i]] <- ps_table_i |>
         mutate(.draw = i)
 
-      res_shift[[i]] <- shifts %>% mutate(.draw = i)
+      res_shift[[i]] <- shifts |> mutate(.draw = i)
 
       pb$tick()  # update progress bar
     }
     res <- bind_rows(res)
-    res <- res %>%
+    res <- res |>
       select(-all_of(c(geo_var, weight_var)))
 
     shifts <- bind_rows(res_shift)
 
     # summarize posterior if requested
     if (posterior_summary) {
-      res <- res %>%
-        group_by(.rowid) %>%
+      res <- res |>
+        group_by(.rowid) |>
         summarise(across(-.draw, list(
           mean = ~ mean(.x),
           se = ~ sd(.x)
         ), .names = "{.col}_{.fn}"), .groups = "drop")
 
-      shifts <- shifts %>%
-        summarise(across(-.drawid, mean))
+      shifts <- shifts |>
+        summarise(across(-.draw, mean))
     }
     res <- full_join(ps_table, res, by = ".rowid")
-    res <- res %>% select(-.rowid)
+    res <- res |> select(-.rowid)
 
     out <- list(results = res, logit_shifts = shifts)
 

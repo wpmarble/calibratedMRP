@@ -68,7 +68,7 @@ generate_cell_estimates <- function(model,
   if (!inherits(model, "brmsfit")) rlang::abort("`model` must be a brmsfit object.")
 
   # Get outcome names
-  outcome_names <- formula(model)[2][[1]]
+  outcome_names <- stats::formula(model)[2][[1]]
 
   # check that ps_table doesn't contain outcome columns (when summarizing)
   if (summarize && any(outcome_names %in% names(ps_table))) {
@@ -120,7 +120,7 @@ generate_cell_estimates <- function(model,
 
       # Summarize batch
       batch_mean <- apply(pred_array, c(2, 3), mean)
-      batch_var  <- apply(pred_array, c(2, 3), var)
+      batch_var  <- apply(pred_array, c(2, 3), stats::var)
 
       n_batch    <- length(batch_ids)
       M2_batch   <- batch_var * (n_batch - 1)

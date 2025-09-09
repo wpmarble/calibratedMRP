@@ -59,7 +59,7 @@
 #' ## Compute logit shifts for both outcomes
 #' shifts <- logit_shift(
 #'   ps_table = ps,
-#'   vars = c(pred_vote, pred_turnout),
+#'   outcomes = c(pred_vote, pred_turnout),
 #'   weight = weight,
 #'   geography = county,
 #'   calib_target = targets,
@@ -124,10 +124,10 @@ logit_shift_internal <- function(x, w = rep(1, length(x)), target, na.rm = TRUE,
   }
 
 
-  f <- function(a) (target - weighted.mean(logit_shift_intercept(x, a), w = w, na.rm = na.rm))^2
+  f <- function(a) (target - stats::weighted.mean(logit_shift_intercept(x, a), w = w, na.rm = na.rm))^2
 
 
-  opt <- optimize(f, interval = c(-6, 6))
+  opt <- stats::optimize(f, interval = c(-6, 6))
 
   if (abs(abs(opt$minimum) - 6) < tol) {
     warning(
@@ -147,7 +147,7 @@ logit_shift_internal <- function(x, w = rep(1, length(x)), target, na.rm = TRUE,
 #' @importFrom stats plogis qlogis
 logit_shift_intercept <- function(x, a) {
   if (any(x[!is.na(x)] < 0) || any(x[!is.na(x)] > 1)) {
-    rlang::abort(sprintf("x must be in (0, 1); got: %s", paste0(head(x), collapse = ", ")))
+    rlang::abort(sprintf("x must be in (0, 1); got: %s", paste0(utils::head(x), collapse = ", ")))
   }
   plogis(qlogis(x) + a)
 }
@@ -169,6 +169,9 @@ logit_shift_intercept <- function(x, a) {
 #' @param calib_var Variable in `calib_target` storing true targets.
 #'
 #' @return A data frame with one row per geography and the estimated logit shift.
+#' @importFrom tidyselect all_of
+#' @importFrom dplyr select filter pull bind_rows
+#' @importFrom rlang `:=`
 #' @keywords internal
 logit_shift_single = function(ps_table,
                               outcome,
@@ -199,8 +202,8 @@ logit_shift_single = function(ps_table,
     furrr::future_map(\(g) {
 
       # subset PS table and target to this geography
-      tmp_ps <- filter(ps, geography == g)
-      tmp_targ <- filter(calib_target, geography == g) |> dplyr::pull(calib_var)
+      tmp_ps <- dplyr::filter(ps, geography == g)
+      tmp_targ <- dplyr::filter(calib_target, geography == g) |> dplyr::pull(calib_var)
 
       # calculate logit shift
       if (is.na(tmp_targ) || length(tmp_targ) == 0){
@@ -245,7 +248,7 @@ logit_shift_aux <- function(shift,
   premat <- cov_uo %*% cov_oo_inv
 
   shift_mat <- shift |>
-    dplyr::select(all_of(paste0(shift_vars, suffix))) |>
+    dplyr::select(tidyselect::all_of(paste0(shift_vars, suffix))) |>
     as.matrix()
 
   updated_shift <- shift_mat %*% t(premat)

@@ -26,8 +26,7 @@ plugin <- calibrate_mrp(model = mod,
 
 
 # Make sure calibration worked
-test
-calib_res <- poststratify(plugin, weight = est_n,
+calib_res <- poststratify(plugin$results, weight = est_n,
                           outcomes = "presvote2020twoparty_calib",
                           ses = FALSE, by = countyfips)
 calib_res <- left_join(calib_res, targets, by = "countyfips")
@@ -62,10 +61,10 @@ bayes_sum <- calibrate_mrp(model = mod,
 
 # Unit test - each draw should be calibrated
 test_that(desc = "Test that draw-by-draw calibration worked properly", code = {
-  maxdiffs <- numeric(length(unique(bayes$.draw)))
-  for (i in seq_along(unique(bayes$.draw))) {
+  maxdiffs <- numeric(length(unique(bayes$results$.draw)))
+  for (i in seq_along(unique(bayes$results$.draw))) {
     calib_res <- poststratify(
-      bayes %>% filter(.draw == i),
+      bayes$results %>% filter(.draw == i),
       weight = est_n,
       outcomes = "presvote2020twoparty_calib",
       ses = FALSE,

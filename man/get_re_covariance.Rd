@@ -9,7 +9,8 @@ get_re_covariance(
   group,
   tidy = FALSE,
   outcome_order = NULL,
-  draw_ids = NULL
+  draw_ids = NULL,
+  show_progress = FALSE
 )
 }
 \arguments{
@@ -26,6 +27,8 @@ if tidy = FALSE.}
 
 \item{draw_ids}{An integer vector specifying the posterior draws to be used.
 If NULL (the default), all draws are used.}
+
+\item{show_progress}{Show a progress bar while constructing array? Applies if \code{tidy = FALSE}}
 }
 \description{
 \code{get_re_covariance} returns the covariance parameters for random effects that are

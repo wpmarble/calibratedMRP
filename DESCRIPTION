@@ -21,12 +21,14 @@ Imports:
     brms,
     dplyr,
     furrr,
-    future.apply,
+    tidyr,
     MASS,
     purrr,
     rlang,
     tibble,
     tidybayes,
     tidyselect,
+    posterior,
+    stringr,
     progress
-VignetteBuilder: knitr
+# VignetteBuilder: knitr
