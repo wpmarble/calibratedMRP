@@ -49,9 +49,12 @@
 #' @param draw_ids Optional vector of posterior draw indices to use. Defaults to all posterior draws.
 #'
 #' @return
-#' A data frame with the same variables `ps_table` and additional columns for each
-#' calibrated outcome. If `method = "plugin"`, the data frame will have class
-#' `calibrated_plugin` and include one additional column for each outcome
+#' A list containing two objects: 1) a data frame called `results` with the same
+#' variables `ps_table` plus additional columns for each calibrated outcome, and
+#' 2) a data frame called `logit_shifts` storing the estimated intercept-shift
+#' parameters that were used to perform the calibration. If `method = "plugin"`,
+#' the outputs will be posterior means and posterior standard deviations.
+#'  will have class `calibrated_plugin` and include one additional column for each outcome
 #'
 #' @export
 #'
@@ -72,8 +75,7 @@ calibrate_mrp <- function(model,
                           posterior_summary = FALSE,
                           uncertainty = "approximate", # or "bayes" or "none"
                           draw_ids = NULL
-
-){
+                          ) {
   if (class(mod) != "brmsfit") rlang::abort("`mod` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
   if (is.null(draw_ids)) draw_ids <- seq_len(ndraws(mod))
@@ -133,8 +135,9 @@ calibrate_mrp <- function(model,
                                 preds = outcomes,
                                 geography = !!geo_var)
 
-    class(ps_table) <- c("calibrated_summary", class(ps_table))
-    out <- ps_table
+
+    out <- list(results = ps_table, logit_shifts = shifts)
+    class(out) <- c("calibratedMRP", "calibrated_summary", class(out))
   }
 
 
@@ -154,6 +157,7 @@ calibrate_mrp <- function(model,
       select(.rowid, all_of(geo_var), all_of(weight_var))
 
     res <- list()
+    res_shift <- list()
 
     # initialize progress bar
     # rlang::inform("Calibrating posterior draws...\n")
@@ -191,11 +195,15 @@ calibrate_mrp <- function(model,
       res[[i]] <- ps_table_i %>%
         mutate(.draw = i)
 
+      res_shift[[i]] <- shifts %>% mutate(.draw = i)
+
       pb$tick()  # update progress bar
     }
     res <- bind_rows(res)
     res <- res %>%
       select(-all_of(c(geo_var, weight_var)))
+
+    shifts <- bind_rows(res_shift)
 
     # summarize posterior if requested
     if (posterior_summary) {
@@ -205,20 +213,23 @@ calibrate_mrp <- function(model,
           mean = ~ mean(.x),
           se = ~ sd(.x)
         ), .names = "{.col}_{.fn}"), .groups = "drop")
-    }
 
+      shifts <- shifts %>%
+        summarise(across(-.drawid, mean))
+    }
     res <- full_join(ps_table, res, by = ".rowid")
     res <- res %>% select(-.rowid)
 
+    out <- list(results = res, logit_shifts = shifts)
 
     if (posterior_summary) {
-      class(res) <- c("calibrated_summary", class(res))
+      class(out) <- c("calibratedMRP", "calibrated_summary", class(out))
     } else {
-      class(res) <- c("calibrated_draws", class(res))
+      class(out) <- c("calibratedMRP", "calibrated_draws", class(out))
     }
-    out <- res
   }
-  attr(out, "method") <- method
+
+  out$method <- method
   out
 }
 

@@ -16,7 +16,7 @@ targets <- targets %>% rename(presvote2020twoparty = pres2020_2pty)
 
 plugin <- calibrate_mrp(model = mod,
                         ps_table = ps_table,
-                        # outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
+                        outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
                         weight = "est_n",
                         targets = targets,
                         geography = "countyfips",
