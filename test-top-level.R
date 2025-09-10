@@ -8,6 +8,7 @@
 # method <- "plugin"
 # uncertainty <- "approximate"
 
+
 set.seed(1234); ps_table <- ps_cty %>% filter(state == "PA") %>% slice_sample(n = 2e3)
 targets <- targets %>% rename(presvote2020twoparty = pres2020_2pty)
 
@@ -43,7 +44,7 @@ bayes <- calibrate_mrp(model = mod,
                       weight = "est_n",
                       targets = targets,
                       geography = "countyfips",
-                      draw_ids = 1:50,
+                      draw_ids = NULL,
                       method = "bayes",
                       posterior_summary = FALSE)
 class(bayes)

@@ -125,6 +125,7 @@ generate_cell_estimates <- function(model,
       # Get draws: (draw x cell x outcome)
       pred_array <- brms::posterior_epred(
         model,
+        resp = outcomes,
         newdata = ps_table,
         allow_new_levels = TRUE,
         draw_ids = batch_ids
