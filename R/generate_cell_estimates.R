@@ -189,6 +189,7 @@ generate_cell_estimates <- function(model,
     pred_array <- brms::posterior_epred(
       model,
       newdata = ps_table,
+      resp = outcomes,
       allow_new_levels = TRUE,
       draw_ids = draw_ids
     )
