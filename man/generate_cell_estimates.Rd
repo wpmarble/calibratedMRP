@@ -7,6 +7,7 @@
 generate_cell_estimates(
   model,
   ps_table,
+  outcomes = NULL,
   summarize = TRUE,
   draw_ids = NULL,
   se_suffix = "_se",
@@ -18,6 +19,9 @@ generate_cell_estimates(
 \item{model}{A \code{brmsfit} object with multivariate binary outcomes.}
 
 \item{ps_table}{A data frame of poststratification cells (must match model variables).}
+
+\item{outcomes}{Optional character vector of outcome variables to calibrate.
+If \code{NULL}, the outcome names are inferred from the \code{model} formula.}
 
 \item{summarize}{Should the function return a summary data frame with posterior
 means and SDs? If \code{FALSE}, returns an array of draws from the posterior.}

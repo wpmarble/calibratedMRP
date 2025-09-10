@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
 ```
 
 ```{r setup, message=FALSE, warning=FALSE}
-library(calibratedMRP)
+# library(calibratedMRP)
 library(fixest)
 library(lubridate)
 library(brms)
@@ -55,7 +55,7 @@ The file `2022-survey.rdata` includes three objects:
 * `ps_cty` is a poststratification table with county-level population counts for cells defined by combinations of age group, education level, race, and gender. It also includes some contextual variables. County-level contextual variables include share of the population that is non-white, share Hispanic/Latino, share with a college degree, median income, and election results from 2020. Variables ending in `_z` are standardized versions of the original variables. The variables `est_n` and `est_prop` include, respectively, the estimated population count and population share in each poststratification cell, according to the 2022 American Community Survey. 
 * `targets` is a data frame that includes county-level election results from 2020 which we will use as calibration targets.
 
-It is important to note that the demographic and geographic variable names and levels in `surv` and `ps_cty` are identical. 
+It is important that the demographic and geographic variable names and levels in `surv` and `ps_cty` are identical. 
 
 ```{r load-data, cache=TRUE}
 load("data/2022-survey.rdata")
@@ -66,7 +66,10 @@ glimpse(ps_cty)
 
 ## Data Prep
 
-As data prep, we join the contextual covariates from `ps_cty` to the survey data `surv`. We also generate a few group-level variables indicating demographic interactions in both the survey data and the poststratification table. 
+As data prep, we join the contextual covariates from `ps_cty` to the survey data `surv`. We also generate a few group-level variables indicating demographic interactions in both the survey data and the poststratification table. These will be included as random effects in the modeling stage of the workflow.[^1] 
+
+
+[^1]: MRP performance is typically improved substantially by use of contextual covariates. 
 
 ```{r prep-survey-data}
 # join contextual covariates
@@ -168,7 +171,7 @@ The second line specifies the logit link function, where $\alpha_{g[c]}$ is a ge
 
 We use the `brms` interface to the Stan modeling language to estimate the model. The `calibratedMRP` package allows you to either specify your own `brms` formula, or you can use the `fit_model()` helper function. We first show how to specify and estimate the model directly using `brms` then demonstrate how to use the `fit_model()` function to fit the same model.
 
-We make use of two features of the `brms` modeling syntax. First, we use the `mvbind()` function to specify a multivariate response vector. Second, we use the random effects syntax `(1 | name | grouping_variable)` to specify random intercepts for each level of `grouping_variable` that are allowed correlated across outcomes.[^1] 
+We make use of two features of the `brms` modeling syntax. First, we use the `mvbind()` function to specify a multivariate response vector. Second, we use the random effects syntax `(1 | name | grouping_variable)` to specify random intercepts for each level of `grouping_variable` that are allowed correlated across outcomes.[^1] This step is extremely important, as the estimated covariance matrix is used in downstream calibration.
 
 
 [^1]: See the [`brms` vignette](https://cran.r-project.org/web/packages/brms/vignettes/brms_multivariate.html) on multivariate response models for more details.
@@ -208,7 +211,7 @@ formula <- bf(
 
 The next step is to estimate the multilevel model using the `brm` function from `brms`, which compiles Stan code and estimates the model in Stan using either the `rstan` or `cmdstanr` backend. Stan provides several methods of fitting the model, including Hamiltonian Monte Carlo (HMC) and variational inference.
 
-We also specify $\text{Normal}(0, 5^2)$ priors for the fixed-effects regression coefficients and accept the following `brms` default priors for the other parameters:
+We specify $\text{Normal}(0, 5^2)$ priors for the fixed-effects regression coefficients and accept the following `brms` default priors for the other parameters:
 
 $$
 \begin{align*}
@@ -263,12 +266,12 @@ Formally, what this function does is summarizes the posterior distribution. Firs
 ```{r generate-predictions, cache=TRUE}
 draw_ids <- sample(1:ndraws(mod), 100)
 # Generate predictions for each poststratification cell
-blah <- generate_cell_estimates(mod, 
-                                ps_table = ps_cty, 
-                                draw_ids = draw_ids,
-                                se_suffix = "_se",
-                                summarize = FALSE)
-ps_cty %>% 
+ps_cty <- generate_cell_estimates(mod, 
+                                 ps_table = ps_cty, 
+                                 draw_ids = draw_ids,
+                                 se_suffix = "_se",
+                                 summarize = TRUE)
+ps_cty %>%  
   select(countyfips, state, agegrp, gender, educ, race, starts_with("bidenlegitimate"))
 ```
 
@@ -278,7 +281,7 @@ Let's start by visualizing the modeled relationship between the outcome and the 
 
 ```{r, fig.height=10, fig.width=9}
 ggplot(ps_cty %>% filter(state == "PA")) + 
-  aes(y = bidenlegitimate_uncalib, x = as.integer(agegrp), 
+  aes(y = bidenlegitimate, x = as.integer(agegrp), 
       colour = ifelse(nonwhite, "non-white", "white"), weight = est_n) + 
   geom_point(aes(size = est_n, alpha = est_n), pch = 1, position = position_jitter(.25)) +
   geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE) + 

@@ -13,6 +13,8 @@
 #'
 #' @param model A `brmsfit` object with multivariate binary outcomes.
 #' @param ps_table A data frame of poststratification cells (must match model variables).
+#' @param outcomes Optional character vector of outcome variables to calibrate.
+#'  If `NULL`, the outcome names are inferred from the `model` formula.
 #' @param summarize Should the function return a summary data frame with posterior
 #'    means and SDs? If `FALSE`, returns an array of draws from the posterior.
 #' @param draw_ids Optional vector of posterior draw indices to use. If NULL
@@ -59,6 +61,7 @@
 #'
 generate_cell_estimates <- function(model,
                                     ps_table,
+                                    outcomes = NULL,
                                     summarize = TRUE,
                                     draw_ids = NULL,
                                     se_suffix = "_se",
@@ -67,18 +70,27 @@ generate_cell_estimates <- function(model,
 
   if (!inherits(model, "brmsfit")) rlang::abort("`model` must be a brmsfit object.")
 
-  # Get outcome names
-  outcome_names <- stats::formula(model)[2][[1]]
+
+  outcomes_quo <- rlang::enquo(outcomes)
+  if (is.null(outcomes)) {
+    outcomes <- mod$formula[[2]]
+    rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
+                    "i" = paste(outcomes, collapse = ", ")), )
+  }
+
+  if (is.null(draw_ids)) {
+    draw_ids <- seq_len(brms::ndraws(model))
+  }
 
   # check that ps_table doesn't contain outcome columns (when summarizing)
-  if (summarize && any(outcome_names %in% names(ps_table))) {
-    name_conflicts <- outcome_names[outcome_names %in% names(ps_table)]
+  if (summarize && any(outcomes %in% names(ps_table))) {
+    name_conflicts <- outcomes[outcomes %in% names(ps_table)]
     rlang::abort(c("`ps_table` already contains outcome columns:",
                    "*" = paste0("Found: ", paste(name_conflicts, collapse = ", ")),
                    "i" = "Rename or remove these columns from `ps_table`"))
   } else {
     rlang::inform(c("Generating estimates for the following outcomes: ",
-                    "*" = paste0(outcome_names, collapse = ", ")))
+                    "*" = paste0(outcomes, collapse = ", ")))
   }
 
 
@@ -90,8 +102,8 @@ generate_cell_estimates <- function(model,
 
     # process posterior samples in batches to reduce memory requirement
     batch_size <- control$batch_size
-    all_draws <- if (is.null(draw_ids)) seq_len(brms::ndraws(model)) else draw_ids
-    n_batches <- ceiling(length(all_draws) / batch_size)
+    all_draws  <- draw_ids
+    n_batches  <- ceiling(length(all_draws) / batch_size)
 
     running_mean <- NULL
     running_M2   <- NULL
@@ -165,8 +177,8 @@ generate_cell_estimates <- function(model,
 
     # reorder columns
     ordered_names <- as.vector(rbind(
-      paste0(outcome_names, outcome_suffix),
-      paste0(outcome_names, se_suffix)
+      paste0(outcomes, outcome_suffix),
+      paste0(outcomes, se_suffix)
     ))
     preds <- preds[, ordered_names]
     dplyr::bind_cols(ps_table, preds)

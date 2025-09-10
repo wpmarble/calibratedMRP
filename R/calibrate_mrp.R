@@ -120,6 +120,7 @@ calibrate_mrp <- function(model,
   if (method == "plugin") {
     ps_table <- generate_cell_estimates(model = model,
                                         ps_table = ps_table,
+                                        outcomes = outcomes,
                                         draw_ids = draw_ids,
                                         summarize = TRUE)
     covs <- apply(covs, c(2,3), mean, simplify = TRUE)
@@ -156,6 +157,7 @@ calibrate_mrp <- function(model,
     # get posterior draws of cell-level estimates
     ps_draws <- generate_cell_estimates(model = model,
                                         ps_table = ps_table,
+                                        outcomes = outcomes,
                                         draw_ids = draw_ids,
                                         summarize = FALSE)
 

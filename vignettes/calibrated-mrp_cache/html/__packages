@@ -11,3 +11,4 @@ ggplot2
 modelsummary
 StanHeaders
 rstan
+forcats
