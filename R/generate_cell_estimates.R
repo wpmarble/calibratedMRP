@@ -73,7 +73,7 @@ generate_cell_estimates <- function(model,
 
   outcomes_quo <- rlang::enquo(outcomes)
   if (is.null(outcomes)) {
-    outcomes <- mod$formula[[2]]
+    outcomes <- model$formula[[2]]
     rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
                     "i" = paste(outcomes, collapse = ", ")), )
   }
