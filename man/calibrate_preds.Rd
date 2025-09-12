@@ -43,34 +43,5 @@ Takes the poststratification table and a table of logit shift parameters and
 returns the calibrated cell-level probabilities.
 }
 \examples{
-## Example poststratification table with predictions for voteshare and turnout
-ps <- tibble::tibble(county = rep(c("A", "B"), each = 100),
-                     demo_group = rep(1:100, 2),
-                     pred_vote = plogis(rnorm(200, qlogis(0.4), 0.5)),
-                     pred_turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
-                     weight = runif(200, 0.2, 0.8)
-                     )
-
-## Calibration targets by county
-targets <- tibble::tibble(
-  county = c("A", "B"),
-  vote_target = c(0.55, 0.45),
-  turnout_target = c(0.65, 0.55)
-)
-
-## Compute logit shifts for both outcomes
-shifts <- logit_shift(
-  ps_table = ps,
-  outcomes = c(pred_vote, pred_turnout),
-  weight = weight,
-  geography = county,
-  calib_target = targets,
-  calib_vars = c(vote_target, turnout_target)
-)
-
-## Calibrate predictions in poststratification table
-ps <- calibrate_preds(ps_table = ps, shifts = shifts,
-                      preds = c(pred_vote, pred_turnout),
-                      geography = county)
-head(ps)
+## See examples in ?logit_shift()
 }

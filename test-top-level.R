@@ -39,6 +39,8 @@ future::plan("multisession", workers = 4)
 options(future.globals.maxSize = 3e3 * 1024^2) # 3GB memory for `future`
 
 
+draw_ids <- 1:100
+
 # Multivariate Outcomes ---------------------------------------------------
 
 
@@ -73,7 +75,7 @@ bayes <- calibrate_mrp(model = mod,
                       weight = "est_n",
                       targets = targets,
                       geography = "countyfips",
-                      draw_ids = NULL,
+                      draw_ids = draw_ids,
                       method = "bayes",
                       posterior_summary = FALSE)
 class(bayes)
@@ -119,16 +121,26 @@ test_that(desc = "Test that draw-by-draw calibration worked properly", code = {
 
 
 blah <- generate_cell_estimates(univ_mod, ps_table, summarize = TRUE)
-calib <- logit_shift(blah,
-                     outcomes = "presvote2020twoparty",
-                     calib_target = targets,
+shfits <- logit_shift(blah,
+                     # outcomes = "presvote2020twoparty",
+                     targets = targets,
                      weight = "est_n",
-                     geography = "countyfips",
-                     calib_vars = "pres2020_2pty")
-
+                     geography = "countyfips")
+calib <- calibrate()
 
 
 ## Bayes estimator ---------------------------------------------------------
 
 blah <- generate_cell_estimates(univ_mod, ps_table, summarize = FALSE)
 debug(generate_cell_estimates)
+
+
+## Test calibrate_mrp() with single outcome
+what <- calibrate_mrp(model = univ_mod,
+                      ps_table = ps_table,
+                      outcomes = "presvote2020twoparty",
+                      weight = "est_n",
+                      targets = targets,
+                      geography = "countyfips",
+                      draw_ids = 1:100,
+                      method = "plugin")

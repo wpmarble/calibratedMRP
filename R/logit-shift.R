@@ -25,14 +25,14 @@
 #'  geographic targets by computing logit intercept shifts for each outcome.
 #'
 #' @param ps_table A data frame of poststratification cells with predictions.
+#' @param targets A data frame with true targets by `geography`.
 #' @param outcomes One or more outcome variables in `ps_table` to calibrate.
 #'   Accepts tidyselect syntax (e.g., `voteshare_gov`, `c(voteshare_gov, voteshare_pres)`, `starts_with("voteshare")`).
+#'   If `NULL` (the default), the function will infer outcomes from the overlap
+#'   of variables in `ps_table` and `targets`.
 #' @param weight Weighting variable in `ps_table` storing population counts.
 #' @param geography Grouping variable found in `ps_table` and `calib_data` used
 #' for calibration.
-#' @param calib_target A data frame with true targets by `geography`.
-#' @param calib_vars Variables in `calib_target` storing true targets.
-#'   `outcomes` and `calib_vars` must be in the same order. Accepts tidyselect syntax.
 #'
 #' @return A data frame with logit shifts for each prediction variable and geography.
 #' @export
@@ -44,54 +44,74 @@
 #' ## Example poststratification table with predictions for voteshare and turnout
 #' ps <- tibble::tibble(county = rep(c("A", "B"), each = 100),
 #'                      demo_group = rep(1:100, 2),
-#'                      pred_vote = plogis(rnorm(200, qlogis(0.4), 0.5)),
-#'                      pred_turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
+#'                      voteshare = plogis(rnorm(200, qlogis(0.4), 0.5)),
+#'                      turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
 #'                      weight = runif(200, 0.2, 0.8)
 #'                      )
 #'
 #' ## Calibration targets by county
 #' targets <- tibble::tibble(
 #'   county = c("A", "B"),
-#'   vote_target = c(0.55, 0.45),
-#'   turnout_target = c(0.65, 0.55)
+#'   voteshare = c(0.55, 0.45),
+#'   turnout = c(0.65, 0.55)
 #' )
 #'
 #' ## Compute logit shifts for both outcomes
 #' shifts <- logit_shift(
 #'   ps_table = ps,
-#'   outcomes = c(pred_vote, pred_turnout),
+#'   targets = targets,
+#'   outcomes = c("voteshare", "turnout"),
 #'   weight = weight,
-#'   geography = county,
-#'   calib_target = targets,
-#'   calib_vars = c(vote_target, turnout_target)
+#'   geography = county
 #' )
 #' shifts # data frame with intercept shift needed for each geography
 #'
+#' ## Alternatively, the function infers the outcome variable(s) if not provided
+#' shifts <- logit_shift(
+#'   ps_table = ps,
+#'   targets = targets,
+#'   weight = weight,
+#'   geography = county
+#' )
+#'
 #' ## Calibrate predictions for each cell in poststratification table
 #' ps <- calibrate_preds(ps_table = ps, shifts = shifts,
-#'                       preds = c(pred_vote, pred_turnout),
+#'                       preds = c("voteshare", "turnout"),
 #'                       geography = county)
 #' head(ps)
 logit_shift <- function(ps_table,
-                        outcomes,
+                        outcomes = NULL,
+                        targets,
                         weight,
-                        geography,
-                        calib_target,
-                        calib_vars){
+                        geography) {
 
   # Resolve tidyselect
   weight_var <- rlang::as_name(rlang::enquo(weight))
   geo_var <- rlang::as_name(rlang::enquo(geography))
 
-  outcomes <- tidyselect::eval_select(rlang::enquo(outcomes), ps_table)
-  calib_vars <- tidyselect::eval_select(rlang::enquo(calib_vars), calib_target)
+  if (is.null(outcomes)){
+    var_names <- setdiff(intersect(names(ps_table), names(targets)), geo_var)
+    calib_names <- var_names
+    if (length(var_names) == 0) {
+      rlang::abort(c("No `outcomes` provided and no overlap between variables in `ps_table` and `targets`",
+                     "*" = "`ps_table` and `targets` must have shared variable to perform calibration"))
+    } else {
+      rlang::inform(c("No `outcomes` provided; inferring outcomes from overlap between variables in `ps_table` and `targets`:",
+                    "*" = sprintf("%s", paste(var_names, collapse = ', '))))
+    }
 
-  var_names <- names(outcomes)
-  calib_names <- names(calib_vars)
+  } else {
+    var_names <- names(tidyselect::eval_select(rlang::enquo(outcomes), ps_table))
+    calib_names <- names(tidyselect::eval_select(rlang::enquo(outcomes), targets))
 
+    if (length(var_names) != length(calib_names)) {
+      rlang::abort(c("Not all `outcomes` appear in both `ps_table` and `targets`",
+                     "*" = "Variables in `ps_table`: {paste(var_names, collapse = ', ')}",
+                     "*" = "Variables in `targets`: {paste(calib_names, collapse = ', ')}"))
+    }
 
-  if (length(var_names) != length(calib_names)) {
-    rlang::abort("Number of `outcomes` and `calib_vars` must match.")
+    var_names <- sort(var_names)
+    calib_names <- sort(calib_names)
   }
 
   # repeatedly call logit_shift_single() then combine results
@@ -100,7 +120,7 @@ logit_shift <- function(ps_table,
                                           outcome = x,
                                           weight = weight_var,
                                           geography = geo_var,
-                                          calib_target = calib_target,
+                                          calib_target = targets,
                                           calib_var = y),
               .progress = TRUE) |>
     purrr::reduce(dplyr::full_join, by = geo_var)

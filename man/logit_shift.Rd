@@ -4,23 +4,22 @@
 \alias{logit_shift}
 \title{Compute logit shifts for multiple outcomes given target marginals}
 \usage{
-logit_shift(ps_table, outcomes, weight, geography, calib_target, calib_vars)
+logit_shift(ps_table, outcomes = NULL, targets, weight, geography)
 }
 \arguments{
 \item{ps_table}{A data frame of poststratification cells with predictions.}
 
 \item{outcomes}{One or more outcome variables in \code{ps_table} to calibrate.
-Accepts tidyselect syntax (e.g., \code{voteshare_gov}, \code{c(voteshare_gov, voteshare_pres)}, \code{starts_with("voteshare")}).}
+Accepts tidyselect syntax (e.g., \code{voteshare_gov}, \code{c(voteshare_gov, voteshare_pres)}, \code{starts_with("voteshare")}).
+If \code{NULL} (the default), the function will infer outcomes from the overlap
+of variables in \code{ps_table} and \code{targets}.}
+
+\item{targets}{A data frame with true targets by \code{geography}.}
 
 \item{weight}{Weighting variable in \code{ps_table} storing population counts.}
 
 \item{geography}{Grouping variable found in \code{ps_table} and \code{calib_data} used
 for calibration.}
-
-\item{calib_target}{A data frame with true targets by \code{geography}.}
-
-\item{calib_vars}{Variables in \code{calib_target} storing true targets.
-\code{outcomes} and \code{calib_vars} must be in the same order. Accepts tidyselect syntax.}
 }
 \value{
 A data frame with logit shifts for each prediction variable and geography.
@@ -33,32 +32,39 @@ geographic targets by computing logit intercept shifts for each outcome.
 ## Example poststratification table with predictions for voteshare and turnout
 ps <- tibble::tibble(county = rep(c("A", "B"), each = 100),
                      demo_group = rep(1:100, 2),
-                     pred_vote = plogis(rnorm(200, qlogis(0.4), 0.5)),
-                     pred_turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
+                     voteshare = plogis(rnorm(200, qlogis(0.4), 0.5)),
+                     turnout = plogis(rnorm(200, qlogis(0.3), 0.4)),
                      weight = runif(200, 0.2, 0.8)
                      )
 
 ## Calibration targets by county
 targets <- tibble::tibble(
   county = c("A", "B"),
-  vote_target = c(0.55, 0.45),
-  turnout_target = c(0.65, 0.55)
+  voteshare = c(0.55, 0.45),
+  turnout = c(0.65, 0.55)
 )
 
 ## Compute logit shifts for both outcomes
 shifts <- logit_shift(
   ps_table = ps,
-  outcomes = c(pred_vote, pred_turnout),
+  targets = targets,
+  outcomes = c("voteshare", "turnout"),
   weight = weight,
-  geography = county,
-  calib_target = targets,
-  calib_vars = c(vote_target, turnout_target)
+  geography = county
 )
 shifts # data frame with intercept shift needed for each geography
 
+## Alternatively, the function infers the outcome variable(s) if not provided
+shifts <- logit_shift(
+  ps_table = ps,
+  targets = targets,
+  weight = weight,
+  geography = county
+)
+
 ## Calibrate predictions for each cell in poststratification table
 ps <- calibrate_preds(ps_table = ps, shifts = shifts,
-                      preds = c(pred_vote, pred_turnout),
+                      preds = c("voteshare", "turnout"),
                       geography = county)
 head(ps)
 }

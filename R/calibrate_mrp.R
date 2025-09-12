@@ -100,17 +100,17 @@ calibrate_mrp <- function(model,
   if (is.null(outcomes)) {
     outcomes <- mod$formula[[2]]
     rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
-                    "i" = paste(outcomes, collapse = ", ")))
+                    "*" = paste(outcomes, collapse = ", ")))
   }
   if (!any(outcomes %in% names(targets))) {
       rlang::abort(c("At least one variable in `outcomes` must be present in `targets` data frame to perform calibration.",
                      "*" = sprintf("Outcome variables: %s", paste(outcomes, collapse = ", ")),
                      "*" = sprintf("`targets` variables: %s", paste(names(targets), collapse = ", ")),
-                     "i" = "brms automatically removes underscores from variable names; maybe you need to rename variables in `targets` to match?"))
+                     "*" = "brms automatically removes underscores from variable names; maybe you need to rename variables in `targets` to match?"))
   } else {
     calib_vars <- intersect(outcomes, names(targets))
     rlang::inform(c("Using the following variables for calibration: ",
-                    "i" = paste(calib_vars, collapse = ", ")))
+                    "*" = paste(calib_vars, collapse = ", ")))
   }
 
   # extract covariance from model
@@ -128,10 +128,9 @@ calibrate_mrp <- function(model,
     # calculate logit shifts for observed variables
     shifts <- logit_shift(ps_table,
                           outcomes = calib_vars,
-                          calib_target = targets,
+                          targets = targets,
                           weight = !!weight_var,
-                          geography = !!geo_var,
-                          calib_vars = calib_vars)
+                          geography = !!geo_var)
 
     # impute logit shifts for unobserved variables
     shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs)
@@ -187,10 +186,9 @@ calibrate_mrp <- function(model,
 
       shifts <- logit_shift(ps_table_i,
                             outcomes = calib_vars,
-                            calib_target = targets,
+                            targets = targets,
                             weight = !!weight_var,
-                            geography = !!geo_var,
-                            calib_vars = calib_vars)
+                            geography = !!geo_var)
 
       # impute logit shifts for unobserved variables
       shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs_i)
