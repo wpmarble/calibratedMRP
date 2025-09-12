@@ -46,8 +46,6 @@
 #'  separately for each posterior draw, which are then summarized. Defaults to `"plugin"`.
 #' @param posterior_summary If `method = "bayes"`, should the function return all
 #'  draws from the posterior or summarize and return the posterior mean and SD?
-#' @param uncertainty Method for uncertainty estimation. One of `"approximate"` (default),
-#' `"bayes"`, or `"none"`. Currently ignored.
 #' @param draw_ids Optional vector of posterior draw indices to use. Defaults to all posterior draws.
 #'
 #' @return
@@ -79,7 +77,6 @@ calibrate_mrp <- function(model,
                           outcomes = NULL, # defaults to outcomes in `mod`
                           method = "plugin", # or "bayes"
                           posterior_summary = FALSE,
-                          uncertainty = "approximate", # or "bayes" or "none"
                           draw_ids = NULL
                           ) {
   if (class(mod) != "brmsfit") rlang::abort("`mod` must be a `brmsfit` object")
@@ -113,8 +110,13 @@ calibrate_mrp <- function(model,
                     "*" = paste(calib_vars, collapse = ", ")))
   }
 
+  # check if there are any outcomes that aren't in the calibration targets
+  auxcalib <-  length(outcomes) > length(calib_vars)
+
   # extract covariance from model
-  covs <- get_re_covariance(model = mod, group = geography, tidy = FALSE, draw_ids = draw_ids)
+  if (auxcalib){
+    covs <- get_re_covariance(model = mod, group = geography, tidy = FALSE, draw_ids = draw_ids)
+  }
 
   # calculate predictions
   if (method == "plugin") {
@@ -123,7 +125,6 @@ calibrate_mrp <- function(model,
                                         outcomes = outcomes,
                                         draw_ids = draw_ids,
                                         summarize = TRUE)
-    covs <- apply(covs, c(2,3), mean, simplify = TRUE)
 
     # calculate logit shifts for observed variables
     shifts <- logit_shift(ps_table,
@@ -133,7 +134,10 @@ calibrate_mrp <- function(model,
                           geography = !!geo_var)
 
     # impute logit shifts for unobserved variables
-    shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs)
+    if (auxcalib) {
+      covs <- apply(covs, c(2,3), mean, simplify = TRUE)
+      shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs)
+    }
 
     # generate calibrated probs
     ps_table <- calibrate_preds(ps_table = ps_table,
@@ -179,9 +183,11 @@ calibrate_mrp <- function(model,
 
     for (i in seq_along(draw_ids)){
 
-      ps_draw_i <- as.data.frame(ps_draws[i, , ])
+      # clunky slicing necessary to handle case with one outcome
+      ps_draw_i <- as.data.frame(matrix(ps_draws[i, , , drop = FALSE],
+                                        nrow = dim(ps_draws)[2],
+                                        dimnames = dimnames(ps_draws)[2:3]))
       ps_table_i <- cbind(ps_table_clean, ps_draw_i)
-      covs_i <- covs[i , ,]
 
 
       shifts <- logit_shift(ps_table_i,
@@ -191,7 +197,10 @@ calibrate_mrp <- function(model,
                             geography = !!geo_var)
 
       # impute logit shifts for unobserved variables
-      shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs_i)
+      if (auxcalib) {
+        covs_i <- covs[i , ,]
+        shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs_i)
+      }
 
       # generate calibrated probs
       ps_table_i <- calibrate_preds(ps_table = ps_table_i,
@@ -221,6 +230,7 @@ calibrate_mrp <- function(model,
         ), .names = "{.col}_{.fn}"), .groups = "drop")
 
       shifts <- shifts |>
+        group_by(!!rlang::sym(geo_var)) |>
         summarise(across(-.draw, mean))
     }
     res <- full_join(ps_table, res, by = ".rowid")

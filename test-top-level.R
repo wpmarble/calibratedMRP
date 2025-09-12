@@ -48,7 +48,8 @@ draw_ids <- 1:100
 
 plugin <- calibrate_mrp(model = mod,
                         ps_table = ps_table,
-                        outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
+                        # outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
+                        outcomes = "presvote2020twoparty",
                         weight = "est_n",
                         targets = targets,
                         geography = "countyfips",
@@ -72,6 +73,7 @@ summary(calib_res$presvote2020twoparty_calib - calib_res$presvote2020twoparty)
 bayes <- calibrate_mrp(model = mod,
                       ps_table = ps_table,
                       # outcomes = c("bidenlegitimate", "presvote2020twoparty", "bidenappr"),
+                      outcomes = "presvote2020twoparty",
                       weight = "est_n",
                       targets = targets,
                       geography = "countyfips",

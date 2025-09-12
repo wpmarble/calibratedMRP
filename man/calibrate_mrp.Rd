@@ -13,7 +13,6 @@ calibrate_mrp(
   outcomes = NULL,
   method = "plugin",
   posterior_summary = FALSE,
-  uncertainty = "approximate",
   draw_ids = NULL
 )
 }
@@ -41,9 +40,6 @@ separately for each posterior draw, which are then summarized. Defaults to \code
 
 \item{posterior_summary}{If \code{method = "bayes"}, should the function return all
 draws from the posterior or summarize and return the posterior mean and SD?}
-
-\item{uncertainty}{Method for uncertainty estimation. One of \code{"approximate"} (default),
-\code{"bayes"}, or \code{"none"}. Currently ignored.}
 
 \item{draw_ids}{Optional vector of posterior draw indices to use. Defaults to all posterior draws.}
 }
