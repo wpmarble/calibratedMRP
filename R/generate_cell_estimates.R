@@ -73,10 +73,19 @@ generate_cell_estimates <- function(model,
 
   outcomes_quo <- rlang::enquo(outcomes)
   if (is.null(outcomes)) {
-    outcomes <- model$formula[[2]]
     rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
                     "i" = paste(outcomes, collapse = ", ")), )
+    if (inherits(model$formula, "bform")) {
+      if (inherits(model$formula, "mvbrmsformula")) {
+        outcomes <- model$formula$responses
+      } else {
+        outcomes <- model$formula$resp
+      }
+    } else {
+      outcomes <- formula.tools::lhs(formula)
+    }
   }
+  n_outcomes <- length(outcomes)
 
   if (is.null(draw_ids)) {
     draw_ids <- seq_len(brms::ndraws(model))
@@ -132,6 +141,10 @@ generate_cell_estimates <- function(model,
       )
 
       # Summarize batch
+      if (n_outcomes == 1) {
+        dim(pred_array) <- c(dim(pred_array), 1)
+        dimnames(pred_array)[3] <- list(outcomes)
+      }
       batch_mean <- apply(pred_array, c(2, 3), mean)
       batch_var  <- apply(pred_array, c(2, 3), stats::var)
 
@@ -200,4 +213,8 @@ generate_cell_estimates <- function(model,
     pred_array
   }
 }
+
+
+
+
 

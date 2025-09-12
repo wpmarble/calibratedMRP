@@ -30,5 +30,6 @@ Imports:
     tidyselect,
     posterior,
     stringr,
-    progress
+    progress,
+    formula.tools
 # VignetteBuilder: knitr

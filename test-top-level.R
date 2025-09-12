@@ -7,13 +7,42 @@
 # geography <- "countyfips"
 # method <- "plugin"
 # uncertainty <- "approximate"
+#
+#
+# set.seed(1234); ps_table <- ps_cty %>% filter(state == "PA") %>% slice_sample(n = 2e3)
+# targets <- targets %>% rename(presvote2020twoparty = pres2020_2pty)
+#
+#
+# univ_form <- formula$forms$presvote2020twoparty
+# univ_mod <- brm(formula = univ_form,
+#                 data = surv,
+#                 family = bernoulli,
+#                 prior = prior(normal(0, 5), class = b),
+#                 chains = 4,
+#                 cores = 4,
+#                 iter = 600,
+#                 backend = "cmdstanr",
+#                 adapt_delta = .99,
+#                 max_treedepth = 12)
+# save(mod, univ_mod, ps_table, targets, file = "test-top-level.rdata")
 
 
-set.seed(1234); ps_table <- ps_cty %>% filter(state == "PA") %>% slice_sample(n = 2e3)
-targets <- targets %>% rename(presvote2020twoparty = pres2020_2pty)
+load("test-top-level.rdata")
+
+library(dplyr)
+devtools::load_all()
+
+# parallel
+options(mc.cores = parallel::detectCores())
+library(future)
+future::plan("multisession", workers = 4)
+options(future.globals.maxSize = 3e3 * 1024^2) # 3GB memory for `future`
 
 
-# # Test plugin -------------------------------------------------------------
+# Multivariate Outcomes ---------------------------------------------------
+
+
+## Test plugin -------------------------------------------------------------
 
 plugin <- calibrate_mrp(model = mod,
                         ps_table = ps_table,
@@ -35,7 +64,7 @@ summary(calib_res$presvote2020twoparty_calib - calib_res$presvote2020twoparty)
 
 
 
-# Test bayes ---------------------------------------------------------------
+## Test bayes ---------------------------------------------------------------
 
 # full bayes, return draws
 bayes <- calibrate_mrp(model = mod,
@@ -78,3 +107,9 @@ test_that(desc = "Test that draw-by-draw calibration worked properly", code = {
   }
   testthat::expect_true(all(maxdiffs < 1e-5))
 })
+
+
+
+# Univariate outcomes -----------------------------------------------------
+
+blah <- generate_cell_estimates(univ_mod, ps_table)
