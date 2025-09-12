@@ -10,8 +10,8 @@ generate_cell_estimates(
   outcomes = NULL,
   summarize = TRUE,
   draw_ids = NULL,
-  se_suffix = "_se",
   outcome_suffix = "",
+  se_suffix = "_se",
   control = list(batch_size = 50)
 )
 }
@@ -29,9 +29,9 @@ means and SDs? If \code{FALSE}, returns an array of draws from the posterior.}
 \item{draw_ids}{Optional vector of posterior draw indices to use. If NULL
 (the default), use all draws.}
 
-\item{se_suffix}{Suffix to append to posterior SD columns. Defaults to "_se".}
-
 \item{outcome_suffix}{Optional suffix to append to posterior mean columns. Defaults to no suffix.}
+
+\item{se_suffix}{Suffix to append to posterior SD columns. Defaults to "_se".}
 
 \item{control}{A list of control parameters. See details for list of supported
 controls.}

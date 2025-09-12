@@ -110,6 +110,25 @@ test_that(desc = "Test that draw-by-draw calibration worked properly", code = {
 
 
 
+
+
 # Univariate outcomes -----------------------------------------------------
 
-blah <- generate_cell_estimates(univ_mod, ps_table)
+
+## Plug-in estimator -------------------------------------------------------
+
+
+blah <- generate_cell_estimates(univ_mod, ps_table, summarize = TRUE)
+calib <- logit_shift(blah,
+                     outcomes = "presvote2020twoparty",
+                     calib_target = targets,
+                     weight = "est_n",
+                     geography = "countyfips",
+                     calib_vars = "pres2020_2pty")
+
+
+
+## Bayes estimator ---------------------------------------------------------
+
+blah <- generate_cell_estimates(univ_mod, ps_table, summarize = FALSE)
+debug(generate_cell_estimates)

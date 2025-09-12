@@ -64,8 +64,8 @@ generate_cell_estimates <- function(model,
                                     outcomes = NULL,
                                     summarize = TRUE,
                                     draw_ids = NULL,
-                                    se_suffix = "_se",
                                     outcome_suffix = "",
+                                    se_suffix = "_se",
                                     control = list(batch_size = 50)) {
 
   if (!inherits(model, "brmsfit")) rlang::abort("`model` must be a brmsfit object.")
@@ -73,8 +73,6 @@ generate_cell_estimates <- function(model,
 
   outcomes_quo <- rlang::enquo(outcomes)
   if (is.null(outcomes)) {
-    rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
-                    "i" = paste(outcomes, collapse = ", ")), )
     if (inherits(model$formula, "bform")) {
       if (inherits(model$formula, "mvbrmsformula")) {
         outcomes <- model$formula$responses
@@ -84,6 +82,7 @@ generate_cell_estimates <- function(model,
     } else {
       outcomes <- formula.tools::lhs(formula)
     }
+    rlang::inform("No `outcomes` provided, inferring outcome variables from model formula")
   }
   n_outcomes <- length(outcomes)
 
@@ -206,9 +205,12 @@ generate_cell_estimates <- function(model,
       allow_new_levels = TRUE,
       draw_ids = draw_ids
     )
-
+    if (n_outcomes == 1) {
+      dim(pred_array) <- c(dim(pred_array), 1)
+    }
     dimnames(pred_array)[[1]] <- draw_ids
     dimnames(pred_array)[[2]] <- seq_len(dim(pred_array)[2])
+    dimnames(pred_array)[[3]] <- outcomes
     names(dimnames(pred_array)) <- c("draw", ".cell_id", "outcome")
     pred_array
   }
