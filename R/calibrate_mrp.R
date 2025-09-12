@@ -81,9 +81,9 @@ calibrate_mrp <- function(model,
                           draw_ids = NULL,
                           keep_uncalib = TRUE
                           ) {
-  if (class(mod) != "brmsfit") rlang::abort("`mod` must be a `brmsfit` object")
+  if (class(model) != "brmsfit") rlang::abort("`model` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
-  if (is.null(draw_ids)) draw_ids <- seq_len(posterior::ndraws(mod))
+  if (is.null(draw_ids)) draw_ids <- seq_len(posterior::ndraws(model))
 
 
   # capture NSE inputs
@@ -97,7 +97,7 @@ calibrate_mrp <- function(model,
 
 
   if (is.null(outcomes)) {
-    outcomes <- mod$formula[[2]]
+    outcomes <- get_outcomes(model$formula)
     rlang::inform(c("No `outcomes` provided, defaulting to outcome variables from the model formula: ",
                     "*" = paste(outcomes, collapse = ", ")))
   }
@@ -117,7 +117,7 @@ calibrate_mrp <- function(model,
 
   # extract covariance from model
   if (auxcalib){
-    covs <- get_re_covariance(model = mod, group = geography, tidy = FALSE, draw_ids = draw_ids)
+    covs <- get_re_covariance(model = model, group = geography, tidy = FALSE, draw_ids = draw_ids)
   }
 
   # calculate predictions

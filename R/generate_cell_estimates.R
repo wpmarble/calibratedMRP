@@ -73,15 +73,7 @@ generate_cell_estimates <- function(model,
 
   outcomes_quo <- rlang::enquo(outcomes)
   if (is.null(outcomes)) {
-    if (inherits(model$formula, "bform")) {
-      if (inherits(model$formula, "mvbrmsformula")) {
-        outcomes <- model$formula$responses
-      } else {
-        outcomes <- model$formula$resp
-      }
-    } else {
-      outcomes <- formula.tools::lhs(formula)
-    }
+    outcomes <- get_outcomes(model$formula)
     rlang::inform("No `outcomes` provided, inferring outcome variables from model formula")
   }
   n_outcomes <- length(outcomes)
@@ -220,3 +212,18 @@ generate_cell_estimates <- function(model,
 
 
 
+#' Infer outcomes from a model formula
+#'
+#' @param formula a formula
+#' @return character vector of outcome variable(s)
+get_outcomes <- function(formula){
+  if (inherits(formula, "bform")) {
+    if (inherits(formula, "mvbrmsformula")) {
+      outcomes <- formula$responses
+    } else {
+      outcomes <- formula$resp
+    }
+  } else {
+    outcomes <- formula.tools::lhs(formula)
+  }
+}
