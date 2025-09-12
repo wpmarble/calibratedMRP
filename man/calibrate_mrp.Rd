@@ -13,7 +13,8 @@ calibrate_mrp(
   outcomes = NULL,
   method = "plugin",
   posterior_summary = FALSE,
-  draw_ids = NULL
+  draw_ids = NULL,
+  keep_uncalib = TRUE
 )
 }
 \arguments{
@@ -42,6 +43,8 @@ separately for each posterior draw, which are then summarized. Defaults to \code
 draws from the posterior or summarize and return the posterior mean and SD?}
 
 \item{draw_ids}{Optional vector of posterior draw indices to use. Defaults to all posterior draws.}
+
+\item{keep_uncalib}{Keep uncalibrated outcomes?}
 }
 \value{
 A list containing two objects: 1) a data frame called \code{results} with the same

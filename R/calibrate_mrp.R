@@ -47,6 +47,7 @@
 #' @param posterior_summary If `method = "bayes"`, should the function return all
 #'  draws from the posterior or summarize and return the posterior mean and SD?
 #' @param draw_ids Optional vector of posterior draw indices to use. Defaults to all posterior draws.
+#' @param keep_uncalib Keep uncalibrated outcomes?
 #'
 #' @return
 #' A list containing two objects: 1) a data frame called `results` with the same
@@ -77,7 +78,8 @@ calibrate_mrp <- function(model,
                           outcomes = NULL, # defaults to outcomes in `mod`
                           method = "plugin", # or "bayes"
                           posterior_summary = FALSE,
-                          draw_ids = NULL
+                          draw_ids = NULL,
+                          keep_uncalib = TRUE
                           ) {
   if (class(mod) != "brmsfit") rlang::abort("`mod` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
@@ -143,7 +145,8 @@ calibrate_mrp <- function(model,
     ps_table <- calibrate_preds(ps_table = ps_table,
                                 shifts = shifts,
                                 preds = outcomes,
-                                geography = !!geo_var)
+                                geography = !!geo_var,
+                                keep_orig = keep_uncalib)
 
 
     out <- list(results = ps_table, logit_shifts = shifts)
@@ -206,7 +209,8 @@ calibrate_mrp <- function(model,
       ps_table_i <- calibrate_preds(ps_table = ps_table_i,
                                     shifts = shifts,
                                     preds = outcomes,
-                                    geography = !!geo_var)
+                                    geography = !!geo_var,
+                                    keep_orig = keep_uncalib)
       res[[i]] <- ps_table_i |>
         mutate(.draw = i)
 

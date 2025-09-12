@@ -8,7 +8,7 @@ Description: Provides tools for small area estimation using multilevel
     implementing an intercept correction to ensure model-based estimates match 
     known population margins. Estimates of other quantities are updated in light
     of the calibration using methods in Marble and Clinton (2024).
-License: MIT + file LICENSE
+License: MIT + file LICENSE.md
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2

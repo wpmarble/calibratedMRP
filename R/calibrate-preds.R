@@ -16,9 +16,7 @@
 #' @param shift_suffix String suffix for the shift variables, e.g. if the first outcome
 #'   variable is called `presvote` then the shift variable will be called
 #'   `presvote_shift`.
-#' @param calib_suffix String suffix for calibrated vote probabilities. E.g., if
-#' original prediction is valled `voteshare` then the calibrated prediction
-#' will be called `voteshare_calib`.
+#' @param keep_orig keep original uncalibrated columns?
 #'
 #' @return Returns `ps_table` with additional columns for calibrated predictions.
 #'
@@ -31,17 +29,17 @@ calibrate_preds <- function(ps_table,
                             preds,
                             geography,
                             shift_suffix = "shift",
-                            calib_suffix = "calib") {
+                            keep_orig = TRUE) {
 
   # Resolve tidyselect
-  pred_vars <- tidyselect::eval_select(rlang::enquo(preds), ps_table) |> names()
+  pred_vars <- names(tidyselect::eval_select(rlang::enquo(preds), ps_table))
   geo_var  <- rlang::as_name(rlang::ensym(geography))
   out <- dplyr::left_join(ps_table, shifts, by = geo_var)
 
-  # Recalibrate each prediction column manually
+  # Recalibrate each prediction
   for (pred in pred_vars) {
     shift_col <- paste0(pred, "_", shift_suffix)
-    calib_col <- paste0(pred, "_", calib_suffix)
+    calib_col <- paste0(pred, "_calib")
 
     out[[calib_col]] <- logit_shift_intercept(
       x = out[[pred]],
@@ -52,6 +50,10 @@ calibrate_preds <- function(ps_table,
   # Drop original shift columns
   shift_cols <- paste0(pred_vars, "_", shift_suffix)
   out <- dplyr::select(out, -dplyr::any_of(shift_cols))
+
+  if (!keep_orig){
+    out <- dplyr::select(out, -dplyr::any_of(pred_vars))
+  }
   out
 }
 

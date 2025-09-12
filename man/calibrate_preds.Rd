@@ -10,7 +10,7 @@ calibrate_preds(
   preds,
   geography,
   shift_suffix = "shift",
-  calib_suffix = "calib"
+  keep_orig = TRUE
 )
 }
 \arguments{
@@ -31,9 +31,7 @@ This should be a single variable name (unquoted) that exists in both data frames
 variable is called \code{presvote} then the shift variable will be called
 \code{presvote_shift}.}
 
-\item{calib_suffix}{String suffix for calibrated vote probabilities. E.g., if
-original prediction is valled \code{voteshare} then the calibrated prediction
-will be called \code{voteshare_calib}.}
+\item{keep_orig}{keep original uncalibrated columns?}
 }
 \value{
 Returns \code{ps_table} with additional columns for calibrated predictions.
