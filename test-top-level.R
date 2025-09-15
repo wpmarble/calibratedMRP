@@ -30,7 +30,7 @@
 load("test-top-level.rdata")
 
 library(dplyr)
-devtools::load_all()
+library(calibratedMRP)
 
 # parallel
 options(mc.cores = parallel::detectCores())
@@ -146,3 +146,4 @@ what <- calibrate_mrp(model = univ_mod,
                       geography = "countyfips",
                       draw_ids = 1:100,
                       method = "plugin")
+

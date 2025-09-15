@@ -219,11 +219,11 @@ generate_cell_estimates <- function(model,
 get_outcomes <- function(formula){
   if (inherits(formula, "bform")) {
     if (inherits(formula, "mvbrmsformula")) {
-      outcomes <- formula$responses
+      formula$responses
     } else {
-      outcomes <- formula$resp
+      formula$resp
     }
   } else {
-    outcomes <- formula.tools::lhs(formula)
+    formula.tools::lhs(formula)
   }
 }
