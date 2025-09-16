@@ -39,7 +39,8 @@ future::plan("multisession", workers = 4)
 options(future.globals.maxSize = 3e3 * 1024^2) # 3GB memory for `future`
 
 
-draw_ids <- 1:100
+set.seed(1234)
+draw_ids <- sample(1:brms::ndraws(mod), 100)
 
 # Multivariate Outcomes ---------------------------------------------------
 
@@ -53,7 +54,7 @@ plugin <- calibrate_mrp(model = mod,
                         weight = "est_n",
                         targets = targets,
                         geography = "countyfips",
-                        draw_ids = 1:100,
+                        draw_ids = draw_ids,
                         method = "plugin")
 
 

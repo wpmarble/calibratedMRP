@@ -212,9 +212,9 @@ calibrate_mrp <- function(model,
                                     geography = !!geo_var,
                                     keep_orig = keep_uncalib)
       res[[i]] <- ps_table_i |>
-        mutate(.draw = i)
+        mutate(.draw = draw_ids[i])
 
-      res_shift[[i]] <- shifts |> mutate(.draw = i)
+      res_shift[[i]] <- shifts |> mutate(.draw = draw_ids[i])
 
       pb$tick()  # update progress bar
     }
