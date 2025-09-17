@@ -1,0 +1,167 @@
+--- 
+title: "calibratedMRP: An `R` package for improved small-area estimation with MRP"
+output:
+  github_document:
+    html_preview: false
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+
+```{r}
+library(calibratedMRP)
+library(brms)
+library(dplyr)
+library(ggplot2)
+load("vignette-data.rdata")
+ls()
+```
+
+```{r, echo=FALSE}
+theme_set(theme_classic() + 
+            theme(axis.text = element_text(size = 14), 
+                  title = element_text(size = 16),
+                  strip.text = element_text(size = 16),
+                  legend.text = element_text(size = 14)))
+```
+
+We will use data from an opt-in survey conducted in 2022 to estimate the share of people who believe that Joe Biden was legitimately elected in 2020. The survey asked three questions that we will include in analysis:
+
+* `biden_legitimate`: Binary variable indicating belief that Joe Biden is the legitimate president.
+* `biden_appr`: Binary variable indicating approval of Joe Biden's job performance.
+* `presvote2020_twoparty`: Two-party vote choice in the 2020 presidential election, coded as a binary variable for Biden (1) vs. Trump (0).
+
+
+## Step 1: Estimate outcome model using `brms` 
+
+First, we specify a multivariate outcome model using the `brms` package. Here, we model binary outcomes as a function of demographic variables, geographic variables, and random effects for geography. We make use of two features of the `brms` modeling syntax. First, the `mvbind()` function specifies a multivariate response vector. Second, the random effects syntax `(1 | name | grouping_variable)` specifies random intercepts for each level of `grouping_variable`, and these intercepts are allowed to be correlated across outcomes. This step is extremely important, as the estimated covariance matrix is used in downstream calibration --- allowing us to adjust estimates for outcomes where there is no ground-truth data.
+
+```{r model, eval=FALSE}
+# Define formula
+formula <- bf(
+  mvbind(biden_legitimate, biden_appr, presvote2020_twoparty) ~
+
+    # individual-level predictors
+    gender + as.integer(agegrp) + (1 | age | agegrp) + race + educ +
+
+    # state-level predictors
+    st_demvs_2016_z + (1 | censreg | census.region) + (1 | state | state) +
+
+    # county-level predictors
+    cty_pct_nonwhite_z +  cty_pct_hispanic_z +
+    cty_pct_college_z + cty_med_inc_z + cty_dem2020_z +
+    (1 | c | countyfips)
+)
+
+# Estimate model
+priors <- prior(normal(0, 5), class = b)
+mod <- brm(formula = formula,
+           data = surv,
+           family = bernoulli,
+           prior = priors,
+           chains = 4, 
+           cores = 4,
+           iter = 1000,
+           backend = "cmdstanr",
+           adapt_delta = .995,
+           max_treedepth = 12)
+```
+
+
+
+
+## Step 2: Calibrate MRP estimates
+
+Next, the `calibrate_mrp()` function generates estimates of outcomes, ensuring that the estimates match known population-level margins stored in `targets`. Outcomes with known margins will be calibrated to match exactly. Other outcomes will be adjusted according to their correlation with the outcomes with gorund-truth data. Here, we will calibrate to known county-level margins for `presvote2020_twoparty`, and estimates for `biden_legitimate` and `biden_appr` will be adjusted accordingly. For illustration, we'll just include data from Pennsylvania and only perform the calibration for a subset of the posterior draws.
+
+```{r calib, eval=TRUE}
+calib_res <- calibrate_mrp(model = mod, 
+                           ps_table = ps_cty %>% filter(state == "PA"), 
+                           weight = "est_n", 
+                           targets = targets, 
+                           geography = "countyfips", 
+                           method = "bayes",
+                           draw_ids = sample(1:brms::ndraws(mod), 200))
+```    
+
+## Step 3: Poststratify
+
+Finally, we can poststratify to whatever level is of interest, using the `poststratify()` function. Here we'll poststratify to the county level. Because we are working in a Bayesian framework, we will poststratify once for each draw from the posterior, using `purrr::map()`, then average these results together to obtain our posterior mean estimates.
+
+```{r ps, eval=TRUE}
+out_draws <- calib_res$results %>% 
+  group_split(.draw) %>% 
+  purrr::map(~ poststratify(.x, outcomes = c(starts_with("biden"), starts_with("presvote")),
+                            weight = est_n, by = countyfips)) %>% 
+  bind_rows(.id = ".draw") 
+
+out <- out_draws %>% 
+  summarise(across(c(starts_with("biden"), starts_with("presvote")),
+                   list(mean = mean,
+                        q5 = ~ quantile(.x, .05),
+                        q95 = ~ quantile(.x, .95))),
+            .by = countyfips)
+head(out, 20)
+```
+
+
+## Step 4: Visualize results
+
+Because we calibrated to known county-level margins for `presvote2020_twoparty`, the estimates for this outcome will match the ground-truth data exactly. Estimates for `biden_legitimate` and `biden_appr` will be adjusted according to their correlation with `presvote2020_twoparty`. Here we show the effect of the calibration procedure, relative to uncalibrated MRP. 
+
+```{r, echo=FALSE}
+out <- left_join(out, targets %>% select(countyfips, true_presvote = presvote2020twoparty), 
+                 by = "countyfips")
+p1 <- ggplot(out) + 
+  aes(x = true_presvote, y = presvote2020twoparty_mean) +
+  geom_abline(slope = 1, intercept = 0, lty = 2, color = "gray") +
+  geom_point() + 
+  labs(x = "True 2020 Biden Vote Share", 
+       y = "Estimated 2020 Biden Vote Share", 
+       title = "Vote Share: Uncalibrated")
+p2 <- ggplot(out) +
+  aes(x = true_presvote, y = presvote2020twoparty_calib_mean) +
+  geom_abline(slope = 1, intercept = 0, lty = 2, color = "gray") +
+  geom_point() + 
+  labs(x = "True 2020 Biden Vote Share", 
+       y = "Estimated 2020 Biden Vote Share", 
+       title = "Vote Share: Calibrated")
+
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+```{r, echo=FALSE}
+ggplot(out) + 
+  aes(x = true_presvote, yend = bidenlegitimate_calib_mean, y = bidenlegitimate_mean) +
+  geom_abline(slope = 1, intercept = 0, lty = 2, color = "gray") +
+  geom_segment(arrow = arrow(length = unit(0.2, "cm")), alpha = .5) + 
+  labs(x = "2020 Biden Vote Share", 
+       y = "Believes Biden Was Legitimately Elected", 
+       title = "Effect of Calibration on Biden Legitimacy Estimates")
+```
+
+
+A final way to visualize the effect of calibration is to plot the change in the estimates as a function of error in the vote share estimates. When there is no error in the vote share estimate, the calibrated and uncalibrated estimates are the same. When there is positive error (i.e., overestimating Biden vote share), then the calibrated estimate of `biden_legitimate` is lower than the uncalibrated estimate.
+
+```{r, echo=FALSE}
+out <- out %>% 
+  mutate(vote_error = presvote2020twoparty_mean - true_presvote,
+         legit_change = bidenlegitimate_calib_mean - bidenlegitimate_mean)
+ggplot(out) + 
+  aes(x = vote_error, y = legit_change) +
+  geom_hline(yintercept = 0, lty = 2, color = "gray") +
+  geom_point() + 
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  labs(x = "Error in Vote Share Estimate", 
+       y = "Change in Biden Legitimacy Estimate", 
+       title = "Effect of Calibration on Biden Legitimacy Estimates")
+```
+
+
+
