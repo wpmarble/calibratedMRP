@@ -1,5 +1,5 @@
 --- 
-title: "calibratedMRP: An `R` package for improved small-area estimation with MRP"
+title: "calibratedMRP: Improved small-area estimation with MRP"
 output:
   github_document:
     html_preview: false
@@ -13,29 +13,57 @@ knitr::opts_chunk$set(
 )
 ```
 
+The `calibratedMRP` package implements tools for small-area estimation using multilevel regression and poststratification (MRP) with calibration to known population-level margins. The package features user-friendly functions for performing the calibration and poststratification steps, and is designed to work with models estimated using the `brms` package. 
 
-```{r}
+The top-level functions is `calibrate_mrp()`, which takes as its input a fitted `brms` model, a poststratification table, and known population-level margins for one or more outcomes. It returns the poststratification table with the calibrated estimates appended, along with other information about the calibration procedure. The `poststratify()` function can then be used to poststratify the calibrated estimates to whatever level is of interest.
+
+This package implements methods from [Marble and Clinton, 2025](https://osf.io/preprints/socarxiv/u3ekq_v1). 
+
+# Installation
+
+You can install the latest version of `calibratedMRP` by running:
+
+```{r, eval=FALSE}
+devtools::install_github("wpmarble/calibratedMRP")
+```
+
+# Quick-Start Guide
+
+This short tutorial walks through an example of the package's functionality. We will use data from an opt-in survey conducted in 2022 to estimate the share of people who believe that Joe Biden was legitimately elected in 2020. The survey asked three questions that we will include in analysis:
+
+* `biden_legitimate`: Binary variable indicating belief that Joe Biden is the legitimate president.
+* `biden_appr`: Binary variable indicating approval of Joe Biden's job performance.
+* `presvote2020_twoparty`: Two-party vote choice in the 2020 presidential election, coded as a binary variable for Biden (1) vs. Trump (0).
+
+We will generate estimates of these outcomes at the county level in Pennsylvania. We have access to ground-truth county-level data for the 2020 election, but not for the other two outcomes. We will use the `calibratedMRP` package to ensure that our estimates of `presvote2020_twoparty` match the known county-level results, and that our estimates of `biden_legitimate` and `biden_appr` are adjusted according to their correlation with `presvote2020_twoparty`.
+
+
+## Step 0: Load data
+
+We load three datasets: 
+
+* `surv`, a data frame with survey responses.
+* `ps_cty`, a county-level poststratification table derived from the 2022 American Community Survey. It includes an estimate of the number of people falling into each population cells defined by age $\times$ race $\times$ gender $\times$ education $\times$ county. 
+* `targets` a dataset with county-level election results from 2020.
+
+The data sets are pre-cleaned to ensure that all variable names and levels match across datasets.
+
+```{r, message=FALSE}
 library(calibratedMRP)
 library(brms)
 library(dplyr)
 library(ggplot2)
 load("vignette-data.rdata")
-ls()
 ```
 
 ```{r, echo=FALSE}
 theme_set(theme_classic() + 
-            theme(axis.text = element_text(size = 14), 
-                  title = element_text(size = 16),
-                  strip.text = element_text(size = 16),
-                  legend.text = element_text(size = 14)))
+            theme(axis.text = element_text(size = 12), 
+                  title = element_text(size = 15),
+                  strip.text = element_text(size = 15),
+                  legend.text = element_text(size = 13)))
 ```
 
-We will use data from an opt-in survey conducted in 2022 to estimate the share of people who believe that Joe Biden was legitimately elected in 2020. The survey asked three questions that we will include in analysis:
-
-* `biden_legitimate`: Binary variable indicating belief that Joe Biden is the legitimate president.
-* `biden_appr`: Binary variable indicating approval of Joe Biden's job performance.
-* `presvote2020_twoparty`: Two-party vote choice in the 2020 presidential election, coded as a binary variable for Biden (1) vs. Trump (0).
 
 
 ## Step 1: Estimate outcome model using `brms` 
@@ -149,7 +177,7 @@ ggplot(out) +
 
 A final way to visualize the effect of calibration is to plot the change in the estimates as a function of error in the vote share estimates. When there is no error in the vote share estimate, the calibrated and uncalibrated estimates are the same. When there is positive error (i.e., overestimating Biden vote share), then the calibrated estimate of `biden_legitimate` is lower than the uncalibrated estimate.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, messages=FALSE}
 out <- out %>% 
   mutate(vote_error = presvote2020twoparty_mean - true_presvote,
          legit_change = bidenlegitimate_calib_mean - bidenlegitimate_mean)
@@ -157,7 +185,7 @@ ggplot(out) +
   aes(x = vote_error, y = legit_change) +
   geom_hline(yintercept = 0, lty = 2, color = "gray") +
   geom_point() + 
-  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  geom_smooth(color = "blue", se = FALSE) +
   labs(x = "Error in Vote Share Estimate", 
        y = "Change in Biden Legitimacy Estimate", 
        title = "Effect of Calibration on Biden Legitimacy Estimates")

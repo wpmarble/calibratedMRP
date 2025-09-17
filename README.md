@@ -1,37 +1,39 @@
-calibratedMRP: An `R` package for improved small-area estimation with
-MRP
+calibratedMRP: Improved small-area estimation with MRP
 ================
 
+The `calibratedMRP` package implements tools for small-area estimation
+using multilevel regression and poststratification (MRP) with
+calibration to known population-level margins. The package features
+user-friendly functions for performing the calibration and
+poststratification steps, and is designed to work with models estimated
+using the `brms` package.
+
+The top-level functions is `calibrate_mrp()`, which takes as its input a
+fitted `brms` model, a poststratification table, and known
+population-level margins for one or more outcomes. It returns the
+poststratification table with the calibrated estimates appended, along
+with other information about the calibration procedure. The
+`poststratify()` function can then be used to poststratify the
+calibrated estimates to whatever level is of interest.
+
+This package implements methods from [Marble and Clinton,
+2025](https://osf.io/preprints/socarxiv/u3ekq_v1).
+
+# Installation
+
+You can install the latest version of `calibratedMRP` by running:
+
 ``` r
-library(calibratedMRP)
-library(brms)
-#> Loading required package: Rcpp
-#> Loading 'brms' package (version 2.22.0). Useful instructions
-#> can be found by typing help('brms'). A more detailed introduction
-#> to the package is available through vignette('brms_overview').
-#> 
-#> Attaching package: 'brms'
-#> The following object is masked from 'package:stats':
-#> 
-#>     ar
-library(dplyr)
-#> 
-#> Attaching package: 'dplyr'
-#> The following objects are masked from 'package:stats':
-#> 
-#>     filter, lag
-#> The following objects are masked from 'package:base':
-#> 
-#>     intersect, setdiff, setequal, union
-library(ggplot2)
-load("vignette-data.rdata")
-ls()
-#> [1] "mod"     "ps_cty"  "surv"    "targets"
+devtools::install_github("wpmarble/calibratedMRP")
 ```
 
-We will use data from an opt-in survey conducted in 2022 to estimate the
-share of people who believe that Joe Biden was legitimately elected in
-2020. The survey asked three questions that we will include in analysis:
+# Quick-Start Guide
+
+This short tutorial walks through an example of the package’s
+functionality. We will use data from an opt-in survey conducted in 2022
+to estimate the share of people who believe that Joe Biden was
+legitimately elected in 2020. The survey asked three questions that we
+will include in analysis:
 
 - `biden_legitimate`: Binary variable indicating belief that Joe Biden
   is the legitimate president.
@@ -40,6 +42,36 @@ share of people who believe that Joe Biden was legitimately elected in
 - `presvote2020_twoparty`: Two-party vote choice in the 2020
   presidential election, coded as a binary variable for Biden (1)
   vs. Trump (0).
+
+We will generate estimates of these outcomes at the county level in
+Pennsylvania. We have access to ground-truth county-level data for the
+2020 election, but not for the other two outcomes. We will use the
+`calibratedMRP` package to ensure that our estimates of
+`presvote2020_twoparty` match the known county-level results, and that
+our estimates of `biden_legitimate` and `biden_appr` are adjusted
+according to their correlation with `presvote2020_twoparty`.
+
+## Step 0: Load data
+
+We load three datasets:
+
+- `surv`, a data frame with survey responses.
+- `ps_cty`, a county-level poststratification table derived from the
+  2022 American Community Survey. It includes an estimate of the number
+  of people falling into each population cells defined by age $\times$
+  race $\times$ gender $\times$ education $\times$ county.
+- `targets` a dataset with county-level election results from 2020.
+
+The data sets are pre-cleaned to ensure that all variable names and
+levels match across datasets.
+
+``` r
+library(calibratedMRP)
+library(brms)
+library(dplyr)
+library(ggplot2)
+load("vignette-data.rdata")
+```
 
 ## Step 1: Estimate outcome model using `brms`
 
@@ -152,26 +184,26 @@ head(out, 20)
 #> # A tibble: 20 × 19
 #>    countyfips bidenlegitimate_mean bidenlegitimate_q5 bidenlegitimate_q95
 #>    <chr>                     <dbl>              <dbl>               <dbl>
-#>  1 42001                     0.575             0.407                0.754
-#>  2 42003                     0.695             0.642                0.744
-#>  3 42005                     0.361             0.0972               0.752
-#>  4 42007                     0.768             0.643                0.880
-#>  5 42009                     0.250             0.0834               0.452
-#>  6 42011                     0.602             0.520                0.693
-#>  7 42013                     0.314             0.185                0.487
-#>  8 42015                     0.392             0.187                0.587
-#>  9 42017                     0.694             0.608                0.773
-#> 10 42019                     0.503             0.399                0.598
-#> 11 42021                     0.256             0.112                0.434
-#> 12 42023                     0.335             0.0930               0.708
-#> 13 42025                     0.507             0.352                0.657
-#> 14 42027                     0.520             0.413                0.630
-#> 15 42029                     0.748             0.699                0.795
-#> 16 42031                     0.187             0.0602               0.334
-#> 17 42033                     0.328             0.163                0.531
-#> 18 42035                     0.222             0.0595               0.399
-#> 19 42037                     0.353             0.171                0.553
-#> 20 42039                     0.363             0.163                0.598
+#>  1 42001                     0.589             0.411                0.741
+#>  2 42003                     0.696             0.643                0.746
+#>  3 42005                     0.375             0.0958               0.755
+#>  4 42007                     0.772             0.669                0.881
+#>  5 42009                     0.233             0.0793               0.458
+#>  6 42011                     0.606             0.516                0.701
+#>  7 42013                     0.309             0.185                0.450
+#>  8 42015                     0.392             0.185                0.578
+#>  9 42017                     0.698             0.624                0.778
+#> 10 42019                     0.504             0.404                0.625
+#> 11 42021                     0.266             0.122                0.424
+#> 12 42023                     0.358             0.0850               0.704
+#> 13 42025                     0.505             0.358                0.647
+#> 14 42027                     0.524             0.430                0.613
+#> 15 42029                     0.751             0.698                0.804
+#> 16 42031                     0.188             0.0622               0.357
+#> 17 42033                     0.316             0.157                0.491
+#> 18 42035                     0.209             0.0535               0.411
+#> 19 42037                     0.363             0.167                0.565
+#> 20 42039                     0.370             0.137                0.595
 #> # ℹ 15 more variables: bidenappr_mean <dbl>, bidenappr_q5 <dbl>,
 #> #   bidenappr_q95 <dbl>, bidenlegitimate_calib_mean <dbl>,
 #> #   bidenlegitimate_calib_q5 <dbl>, bidenlegitimate_calib_q95 <dbl>,
@@ -190,9 +222,9 @@ ground-truth data exactly. Estimates for `biden_legitimate` and
 `presvote2020_twoparty`. Here we show the effect of the calibration
 procedure, relative to uncalibrated MRP.
 
-<img src="man/figures/README-unnamed-chunk-4-1.png" width="100%" />
-
 <img src="man/figures/README-unnamed-chunk-5-1.png" width="100%" />
+
+<img src="man/figures/README-unnamed-chunk-6-1.png" width="100%" />
 
 A final way to visualize the effect of calibration is to plot the change
 in the estimates as a function of error in the vote share estimates.
@@ -201,6 +233,6 @@ uncalibrated estimates are the same. When there is positive error (i.e.,
 overestimating Biden vote share), then the calibrated estimate of
 `biden_legitimate` is lower than the uncalibrated estimate.
 
-    #> `geom_smooth()` using formula = 'y ~ x'
+    #> `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-<img src="man/figures/README-unnamed-chunk-6-1.png" width="100%" />
+<img src="man/figures/README-unnamed-chunk-7-1.png" width="100%" />
