@@ -14,7 +14,8 @@ calibrate_mrp(
   method = "plugin",
   posterior_summary = FALSE,
   draw_ids = NULL,
-  keep_uncalib = TRUE
+  keep_uncalib = FALSE,
+  keep_all_ps_vars = FALSE
 )
 }
 \arguments{
@@ -45,17 +46,28 @@ draws from the posterior or summarize and return the posterior mean and SD?}
 \item{draw_ids}{Optional vector of posterior draw indices to use. Defaults to all posterior draws.}
 
 \item{keep_uncalib}{Keep uncalibrated outcomes?}
+
+\item{keep_all_ps_vars}{Keep all variables in \code{ps_table} in the output, or just
+\code{geography}, \code{weight}, outcomes, and \code{.cellid}? To minimize memory overhead this
+should be \code{FALSE} for most uses.}
 }
 \value{
-A list containing two objects: 1) a data frame called \code{results} with the same
-variables \code{ps_table} plus additional columns for each calibrated outcome, and
-2) a data frame called \code{logit_shifts} storing the estimated intercept-shift
+A list containing two objects: 1) a \code{results} data frame that corresponds to
+rows in \code{ps_table} with plus additional columns added for each calibrated outcome,
+and 2) a data frame called \code{logit_shifts} storing the estimated intercept-shift
 parameters that were used to perform the calibration. If \code{method = "plugin"},
 the outputs will be posterior means and posterior standard deviations.
 If \code{method = "bayes"} and \code{posterior_summary = FALSE}, the outputs will include
 all posterior draws, with a \code{.draw} column indicating the draw index. In this
 case value returned has class \code{calibrated_draws}; otherwise it has class
 \code{calibrated_summary}.
+
+If \code{keep_all_ps_vars = TRUE}, the \code{results} data frame will include all columns
+that originally appear in \code{ps_table}. However, this option is not recommended
+for large poststratification tables as it is memory intensive, especially when
+performing full Bayesian inference. If \code{keep_all_ps_vars = FALSE}, the \code{results}
+data frame will include a new column \code{.cellid} that uniquely identifies the
+cells in the poststratification table according to their row number in \code{ps_table}.
 }
 \description{
 This is the top-level function for generating calibrated MRP estimates. It takes

@@ -30,7 +30,8 @@
 load("test-top-level.rdata")
 
 library(dplyr)
-library(calibratedMRP)
+# library(calibratedMRP)
+devtools::load_all()
 
 # parallel
 options(mc.cores = parallel::detectCores())
@@ -90,16 +91,17 @@ bayes_sum <- calibrate_mrp(model = mod,
                            weight = "est_n",
                            targets = targets,
                            geography = "countyfips",
-                           draw_ids = 1:50,
+                           draw_ids = draw_ids,
                            method = "bayes",
                            posterior_summary = TRUE)
 
 # Unit test - each draw should be calibrated
 test_that(desc = "Test that draw-by-draw calibration worked properly", code = {
   maxdiffs <- numeric(length(unique(bayes$results$.draw)))
-  for (i in seq_along(unique(bayes$results$.draw))) {
+
+  for (i in seq_along(draw_ids)) {
     calib_res <- poststratify(
-      bayes$results %>% filter(.draw == i),
+      bayes$results %>% filter(.draw == draw_ids[i]),
       weight = est_n,
       outcomes = "presvote2020twoparty_calib",
       ses = FALSE,
@@ -120,31 +122,51 @@ test_that(desc = "Test that draw-by-draw calibration worked properly", code = {
 # Univariate outcomes -----------------------------------------------------
 
 
-## Plug-in estimator -------------------------------------------------------
+## Bayes estimator -------------------------------------------------------
+
+draw_id2 <- sample(1:brms::ndraws(univ_mod), 100)
+univ_bayes <- calibrate_mrp(model = univ_mod,
+                           ps_table = ps_table,
+                           outcomes = "presvote2020twoparty",
+                           weight = "est_n",
+                           targets = targets,
+                           draw_ids = draw_id2,
+                           geography = "countyfips",
+                           method = "bayes",
+                           posterior_summary = TRUE)
+
+# Make sure calibration worked
+res <- poststratify(univ_bayes$results, weight = est_n,
+                    outcomes = "presvote2020twoparty_calib_mean",
+                    ses = FALSE, by = countyfips)
+res <- left_join(res, targets, by = "countyfips")
+summary(res$presvote2020twoparty_calib_mean - res$presvote2020twoparty)
+test_that(desc = "Test univariate bayes calibration worked properly", code = {
+  maxdiff <- max(abs(res$presvote2020twoparty_calib_mean - res$presvote2020twoparty))
+  testthat::expect_true(maxdiff < 1e-5)
+})
 
 
-blah <- generate_cell_estimates(univ_mod, ps_table, summarize = TRUE)
-shfits <- logit_shift(blah,
-                     # outcomes = "presvote2020twoparty",
-                     targets = targets,
-                     weight = "est_n",
-                     geography = "countyfips")
-calib <- calibrate()
 
 
-## Bayes estimator ---------------------------------------------------------
+## Plugin estimator ---------------------------------------------------------
 
-blah <- generate_cell_estimates(univ_mod, ps_table, summarize = FALSE)
-debug(generate_cell_estimates)
+univ_plugin <- calibrate_mrp(model = univ_mod,
+                             ps_table = ps_table,
+                             outcomes = "presvote2020twoparty",
+                             weight = "est_n",
+                             targets = targets,
+                             geography = "countyfips",
+                             method = "plugin")
 
-
-## Test calibrate_mrp() with single outcome
-what <- calibrate_mrp(model = univ_mod,
-                      ps_table = ps_table,
-                      outcomes = "presvote2020twoparty",
-                      weight = "est_n",
-                      targets = targets,
-                      geography = "countyfips",
-                      draw_ids = 1:100,
-                      method = "plugin")
+# Make sure calibration worked
+univ_plugin <- poststratify(univ_plugin$results, weight = est_n,
+                     outcomes = "presvote2020twoparty_calib",
+                     ses = FALSE, by = countyfips)
+univ_plugin <- left_join(univ_plugin, targets, by = "countyfips")
+summary(univ_plugin$presvote2020twoparty_calib - univ_plugin$presvote2020twoparty)
+test_that(desc = "Test univariate plugin calibration worked properly", code = {
+  maxdiff <- max(abs(univ_plugin$presvote2020twoparty_calib - univ_plugin$presvote2020twoparty))
+  testthat::expect_true(maxdiff < 1e-5)
+})
 

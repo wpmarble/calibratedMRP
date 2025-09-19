@@ -3,7 +3,9 @@
 #'
 #' This is the top-level function for generating calibrated MRP estimates. It takes
 #' a fitted multivariate `brms` model, a poststratification table, and calibration
-#' targets, and returns a data frame with calibrated estimates of
+#' targets, and returns a data frame with calibrated estimates of the outcomes,
+#' along with the geography-specific intercept shifts that were applied to each
+#' outcome.
 #'
 #' @details
 #' This function supports two estimation approaches, a plug-in estimator and a
@@ -43,22 +45,35 @@
 #' @param method Calibration method, either `"plugin"` or `"bayes"`.
 #'  Plug-in estimates use posterior means of predictions and correlations across outcomes
 #'  to compute logit shifts for calibration. Bayesian estimates compute the logit shifts
-#'  separately for each posterior draw, which are then summarized. Defaults to `"plugin"`.
+#'  separately for each posterior draw. Defaults to `"plugin"`, which is less computationally
+#'  intensive.
 #' @param posterior_summary If `method = "bayes"`, should the function return all
 #'  draws from the posterior or summarize and return the posterior mean and SD?
 #' @param draw_ids Optional vector of posterior draw indices to use. Defaults to all posterior draws.
 #' @param keep_uncalib Keep uncalibrated outcomes?
+#' @param keep_all_ps_vars Keep all variables in `ps_table` in the output, or just
+#' `geography`, `weight`, outcomes, and `.cellid`? To minimize memory overhead this
+#' should be `FALSE` for most uses.
+#'
+#'
 #'
 #' @return
-#' A list containing two objects: 1) a data frame called `results` with the same
-#' variables `ps_table` plus additional columns for each calibrated outcome, and
-#' 2) a data frame called `logit_shifts` storing the estimated intercept-shift
+#' A list containing two objects: 1) a `results` data frame that corresponds to
+#' rows in `ps_table` with plus additional columns added for each calibrated outcome,
+#' and 2) a data frame called `logit_shifts` storing the estimated intercept-shift
 #' parameters that were used to perform the calibration. If `method = "plugin"`,
 #' the outputs will be posterior means and posterior standard deviations.
 #' If `method = "bayes"` and `posterior_summary = FALSE`, the outputs will include
 #' all posterior draws, with a `.draw` column indicating the draw index. In this
 #' case value returned has class `calibrated_draws`; otherwise it has class
 #' `calibrated_summary`.
+#'
+#' If `keep_all_ps_vars = TRUE`, the `results` data frame will include all columns
+#' that originally appear in `ps_table`. However, this option is not recommended
+#' for large poststratification tables as it is memory intensive, especially when
+#' performing full Bayesian inference. If `keep_all_ps_vars = FALSE`, the `results`
+#' data frame will include a new column `.cellid` that uniquely identifies the
+#' cells in the poststratification table according to their row number in `ps_table`.
 #'
 #' @importFrom dplyr summarise group_by mutate select across bind_rows full_join row_number
 #' @export
@@ -79,7 +94,8 @@ calibrate_mrp <- function(model,
                           method = "plugin", # or "bayes"
                           posterior_summary = FALSE,
                           draw_ids = NULL,
-                          keep_uncalib = TRUE
+                          keep_uncalib = FALSE,
+                          keep_all_ps_vars = FALSE
                           ) {
   if (class(model) != "brmsfit") rlang::abort("`model` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
@@ -120,6 +136,13 @@ calibrate_mrp <- function(model,
     covs <- get_re_covariance(model = model, group = geography, tidy = FALSE, draw_ids = draw_ids)
   }
 
+  # add a row id to ps_table
+  if (".cellid" %in% names(ps_table)) {
+    rlang::abort("`ps_table` must not contain a column named `.cellid`")
+  }
+  ps_table <- ps_table |>
+    mutate(.cellid = row_number())
+
   # calculate predictions
   if (method == "plugin") {
     ps_table <- generate_cell_estimates(model = model,
@@ -127,6 +150,12 @@ calibrate_mrp <- function(model,
                                         outcomes = outcomes,
                                         draw_ids = draw_ids,
                                         summarize = TRUE)
+
+    # drop most columns from ps_table
+    if (!keep_all_ps_vars){
+      ps_table <- ps_table |>
+        select(.cellid, all_of(c(geo_var, weight_var, outcomes)))
+    }
 
     # calculate logit shifts for observed variables
     shifts <- logit_shift(ps_table,
@@ -157,9 +186,6 @@ calibrate_mrp <- function(model,
   # full bayes version
   if (method == "bayes") {
 
-    ps_table <- ps_table |>
-      mutate(.rowid = row_number())
-
     # get posterior draws of cell-level estimates
     ps_draws <- generate_cell_estimates(model = model,
                                         ps_table = ps_table,
@@ -167,8 +193,13 @@ calibrate_mrp <- function(model,
                                         draw_ids = draw_ids,
                                         summarize = FALSE)
 
+    if (!keep_all_ps_vars){
+      ps_table <- ps_table |>
+        select(.cellid, all_of(c(geo_var, weight_var)))
+    }
+
     ps_table_clean <- ps_table |>
-      select(.rowid, all_of(geo_var), all_of(weight_var))
+      select(.cellid, all_of(c(geo_var, weight_var)))
 
     res <- list()
     res_shift <- list()
@@ -218,6 +249,7 @@ calibrate_mrp <- function(model,
 
       pb$tick()  # update progress bar
     }
+
     res <- bind_rows(res)
     res <- res |>
       select(-all_of(c(geo_var, weight_var)))
@@ -227,7 +259,7 @@ calibrate_mrp <- function(model,
     # summarize posterior if requested
     if (posterior_summary) {
       res <- res |>
-        group_by(.rowid) |>
+        group_by(.cellid) |>
         summarise(across(-.draw, list(
           mean = ~ mean(.x),
           se = ~ sd(.x)
@@ -237,8 +269,10 @@ calibrate_mrp <- function(model,
         group_by(!!rlang::sym(geo_var)) |>
         summarise(across(-.draw, mean))
     }
-    res <- full_join(ps_table, res, by = ".rowid")
-    res <- res |> select(-.rowid)
+    res <- full_join(ps_table, res, by = ".cellid")
+    if (!posterior_summary){
+      res <- res |> relocate(.cellid, .draw)
+    }
 
     out <- list(results = res, logit_shifts = shifts)
 

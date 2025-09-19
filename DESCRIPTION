@@ -1,6 +1,6 @@
 Package: calibratedMRP
 Title: Calibrated Multilevel Regression and Poststratification
-Version: 0.0.0.9000
+Version: 0.0.1.0000
 Authors@R: 
     person("William", "Marble", , "marble.will@gmail.com", role = c("aut", "cre"), comment = c(ORCID = "0000-0001-9352-5540"))
 Description: Provides tools for small area estimation using multilevel 

@@ -115,7 +115,8 @@ calib_res <- calibrate_mrp(model = mod,
                            targets = targets, 
                            geography = "countyfips", 
                            method = "bayes",
-                           draw_ids = sample(1:brms::ndraws(mod), 200))
+                           draw_ids = sample(1:brms::ndraws(mod), 200),
+                           keep_uncalib = TRUE)
 ```    
 
 ## Step 3: Poststratify
@@ -177,7 +178,7 @@ ggplot(out) +
 
 A final way to visualize the effect of calibration is to plot the change in the estimates as a function of error in the vote share estimates. When there is no error in the vote share estimate, the calibrated and uncalibrated estimates are the same. When there is positive error (i.e., overestimating Biden vote share), then the calibrated estimate of `biden_legitimate` is lower than the uncalibrated estimate.
 
-```{r, echo=FALSE, messages=FALSE}
+```{r, echo=FALSE, messages=FALSE, warning=FALSE,results='hide'}
 out <- out %>% 
   mutate(vote_error = presvote2020twoparty_mean - true_presvote,
          legit_change = bidenlegitimate_calib_mean - bidenlegitimate_mean)
