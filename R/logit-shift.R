@@ -14,7 +14,7 @@
 
 # Package-level environment variables
 .calibratedMRP_env <- new.env(parent = emptyenv())
-.calibratedMRP_env$postratify_se_warned <- FALSE
+.calibratedMRP_env$poststratify_se_warned <- FALSE
 
 
 
@@ -167,8 +167,11 @@ logit_shift_internal <- function(x, w = rep(1, length(x)), target, na.rm = TRUE,
 #' @importFrom stats plogis qlogis
 logit_shift_intercept <- function(x, a) {
   if (any(x[!is.na(x)] < 0) || any(x[!is.na(x)] > 1)) {
-    rlang::abort(sprintf("x must be in (0, 1); got: %s", paste0(utils::head(x), collapse = ", ")))
+    rlang::abort(sprintf("x must be in [0, 1]; got: %s", paste0(utils::head(x), collapse = ", ")))
   }
+  # Clamp silently; callers responsible for warning about boundary values
+  x[!is.na(x) & x == 0] <- 1e-10
+  x[!is.na(x) & x == 1] <- 1 - 1e-10
   plogis(qlogis(x) + a)
 }
 
@@ -211,6 +214,15 @@ logit_shift_single = function(ps_table,
     dplyr::select(pred = all_of(outcome),
                   weight = all_of(weight),
                   geography = all_of(geography))
+
+  # Warn once if predictions contain exact 0 or 1
+  at_boundary <- !is.na(ps$pred) & (ps$pred == 0 | ps$pred == 1)
+  if (any(at_boundary)) {
+    rlang::warn(sprintf(
+      "Predictions for '%s' contain %d exact 0 or 1 values. These are clamped to [1e-10, 1-1e-10] before logit transform.",
+      outcome, sum(at_boundary)
+    ))
+  }
 
   calib_target <- calib_target |>
     dplyr::select(geography = all_of(geography),
