@@ -89,7 +89,7 @@ generate_cell_estimates <- function(model,
                    "*" = paste0("Found: ", paste(name_conflicts, collapse = ", ")),
                    "i" = "Rename or remove these columns from `ps_table`"))
   } else {
-    rlang::inform(c("Generating estimates for the following outcomes: ",
+    rlang::inform(c("Generating cell-level estimates for the following outcomes: ",
                     "*" = paste0(outcomes, collapse = ", ")))
   }
 

@@ -75,7 +75,7 @@
 #' data frame will include a new column `.cellid` that uniquely identifies the
 #' cells in the poststratification table according to their row number in `ps_table`.
 #'
-#' @importFrom dplyr summarise group_by mutate select across bind_rows full_join row_number
+#' @importFrom dplyr summarise group_by mutate select across bind_rows full_join row_number relocate
 #' @export
 #'
 #' @examples
@@ -133,7 +133,12 @@ calibrate_mrp <- function(model,
 
   # extract covariance from model
   if (auxcalib){
-    covs <- get_re_covariance(model = model, group = geography, tidy = FALSE, draw_ids = draw_ids)
+    covs <- get_re_covariance(
+      model = model,
+      group = geography,
+      tidy = FALSE,
+      draw_ids = draw_ids
+    )
   }
 
   # add a row id to ps_table
@@ -164,7 +169,7 @@ calibrate_mrp <- function(model,
                           weight = !!weight_var,
                           geography = !!geo_var)
 
-    # impute logit shifts for unobserved variables
+    # impute logit shifts for unobserved variables using posterior mean covariance matrix
     if (auxcalib) {
       covs <- apply(covs, c(2,3), mean, simplify = TRUE)
       shifts <- logit_shift_aux(shifts, shift_vars = calib_vars, cov = covs)
