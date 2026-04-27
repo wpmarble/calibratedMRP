@@ -15,7 +15,7 @@
 #' @param outcomes One or more outcome variables to poststratify.
 #'   Accepts tidyselect syntax (e.g., `var`, `c(var1, var2)`, `starts_with("prefix")`).
 #'   These variables should include cell-level summaries of the outcomes of interest.
-#' @param ses Should standard errors be computed for the postratified estimates under
+#' @param ses Should standard errors be computed for the poststratified estimates under
 #'   the assumption of independence across cells? See details.
 #' @param se_suffix Character suffix for the columns containing standard errors
 #'   for the cell-level estimates of `outcomes`. Defaults to "_se", so if the
@@ -28,11 +28,11 @@
 #'
 #' @returns
 #' A data frame with one row per group in `by` and columns for each variable in
-#' `vars` containing the postratified estimates.
+#' `outcomes` containing the poststratified estimates.
 #'
 #' @details
 #' When the `outcomes` in `ps_table` are posterior means from a multilevel model,
-#' the resulting postratified estimates are also posterior means. The uncertainty
+#' the resulting poststratified estimates are also posterior means. The uncertainty
 #' estimation assumes that there is 0 covariance between cell-level posterior means
 #' and computes the standard errors as \eqn{\sqrt{\sum_c w_c^2 \sigma_c^2 / (\sum w_c)^2}},
 #' where \eqn{w_c} is the weight for cell \eqn{c} and \eqn{\sigma_c^2} is the
@@ -87,12 +87,12 @@ poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
                      .by = {{ by }})
 
   if (ses) {
-    if (!.calibratedMRP_env$postratify_se_warned) {
-      rlang::inform(c("Computing standard errors for postratified estimates under the assumption of independence across cells.",
+    if (!.calibratedMRP_env$poststratify_se_warned) {
+      rlang::inform(c("Computing standard errors for poststratified estimates under the assumption of independence across cells.",
                       "x" = "True uncertainty may be larger or smaller depending on covariance of posterior means of `outcomes` across cells",
-                      "i" = "For full Bayesian inference, do XYZ",
+                      "i" = "For full Bayesian inference, use `calibrate_mrp(..., method = 'bayes')`",
                       "i" = "This message will only be displayed once per session"))
-      .calibratedMRP_env$warned_se <- TRUE
+      .calibratedMRP_env$poststratify_se_warned <- TRUE
     }
 
     out_se <- ps_table %>%
