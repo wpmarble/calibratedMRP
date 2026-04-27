@@ -85,8 +85,9 @@ logit_shift <- function(ps_table,
   # Resolve tidyselect
   weight_var <- rlang::as_name(rlang::enquo(weight))
   geo_var <- rlang::as_name(rlang::enquo(geography))
+  outcomes_quo <- rlang::enquo(outcomes)
 
-  if (is.null(outcomes)){
+  if (rlang::quo_is_null(outcomes_quo)){
     var_names <- setdiff(intersect(names(ps_table), names(targets)), geo_var)
     calib_names <- var_names
     if (length(var_names) == 0) {
@@ -98,8 +99,8 @@ logit_shift <- function(ps_table,
     }
 
   } else {
-    var_names <- names(tidyselect::eval_select(rlang::enquo(outcomes), ps_table))
-    calib_names <- names(tidyselect::eval_select(rlang::enquo(outcomes), targets))
+    var_names <- names(tidyselect::eval_select(outcomes_quo, ps_table))
+    calib_names <- names(tidyselect::eval_select(outcomes_quo, targets))
 
     if (length(var_names) != length(calib_names)) {
       var_names_str   <- paste(var_names,   collapse = ", ")
