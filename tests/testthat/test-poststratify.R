@@ -474,3 +474,56 @@ test_that("poststratify.calibrated_draws errors if outcomes not in results", {
     "missing from"
   )
 })
+
+
+# TC-19 and TC-20 — added in Run 2 amendment to close audit gap ---------------
+
+test_that("TC-19: NAMESPACE contains S3method entries for new methods", {
+  # Path resolution: testthat::test_path() resolves relative to the test file;
+  # NAMESPACE is two levels up (tests/testthat/ -> package root).
+  ns_path <- testthat::test_path("../../NAMESPACE")
+  ns_lines <- readLines(ns_path)
+  expect_true(any(grepl("S3method\\(poststratify,calibrated_summary\\)", ns_lines)))
+  expect_true(any(grepl("S3method\\(poststratify,calibrated_draws\\)", ns_lines)))
+})
+
+test_that("TC-20: README calibrated_draws example runs without error", {
+  # Construct the same mock object as the README example
+  cd_results_readme <- tibble::tibble(
+    .cellid   = rep(1:4, 3),
+    .draw     = rep(1:3, each = 4),
+    state     = rep(c("PA", "PA", "OH", "OH"), 3),
+    est_n     = rep(c(100, 200, 150, 50), 3),
+    voteshare = c(0.55, 0.60, 0.48, 0.52,
+                  0.57, 0.62, 0.50, 0.54,
+                  0.53, 0.58, 0.46, 0.50)
+  )
+  cd_obj_readme <- structure(
+    list(results = cd_results_readme),
+    class = c("calibratedMRP", "calibrated_draws", "list")
+  )
+
+  # Direct call (posterior_summary = TRUE)
+  expect_no_error({
+    out <- poststratify(cd_obj_readme,
+                        outcomes = "voteshare",
+                        weight   = est_n,
+                        by       = state)
+  })
+
+  # Per-draw call + manual quantile
+  expect_no_error({
+    out_draws <- poststratify(cd_obj_readme,
+                               outcomes = "voteshare",
+                               weight   = est_n,
+                               by       = state,
+                               posterior_summary = FALSE)
+    out_quantiles <- out_draws |>
+      dplyr::summarise(
+        voteshare_mean = mean(voteshare),
+        voteshare_q5   = quantile(voteshare, .05),
+        voteshare_q95  = quantile(voteshare, .95),
+        .by = state
+      )
+  })
+})
