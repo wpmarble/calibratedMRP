@@ -2,9 +2,14 @@
 % Please edit documentation in R/poststratify.R
 \name{poststratify}
 \alias{poststratify}
+\alias{poststratify.default}
+\alias{poststratify.calibrated_summary}
+\alias{poststratify.calibrated_draws}
 \title{Poststratify estimates}
 \usage{
-poststratify(
+poststratify(ps_table, ...)
+
+\method{poststratify}{default}(
   ps_table,
   outcomes,
   ses = FALSE,
@@ -14,61 +19,121 @@ poststratify(
   n_out = "n",
   na.rm = TRUE
 )
+
+\method{poststratify}{calibrated_summary}(
+  ps_table,
+  outcomes = NULL,
+  weight,
+  by,
+  n_out = "n",
+  na.rm = TRUE,
+  ...
+)
+
+\method{poststratify}{calibrated_draws}(
+  ps_table,
+  outcomes,
+  weight,
+  by,
+  posterior_summary = TRUE,
+  ses = FALSE,
+  n_out = "n",
+  na.rm = TRUE,
+  ...
+)
 }
 \arguments{
-\item{ps_table}{A data frame where each row represents a poststratification cell.
-The table must include the variables specified in \code{outcomes}, \code{weight}, \code{by},
-and (optionally) \code{ses}.}
+\item{ps_table}{A data frame (default method), or a \code{calibrated_summary}
+or \code{calibrated_draws} list returned by \code{\link{calibrate_mrp}}.}
 
-\item{outcomes}{One or more outcome variables to poststratify.
-Accepts tidyselect syntax (e.g., \code{var}, \code{c(var1, var2)}, \code{starts_with("prefix")}).
-These variables should include cell-level summaries of the outcomes of interest.}
+\item{...}{Additional arguments passed to methods.}
 
-\item{ses}{Should standard errors be computed for the poststratified estimates under
-the assumption of independence across cells? See details.}
+\item{outcomes}{(Default and calibrated_summary methods) One or more outcome
+variables to poststratify. For the default method, accepts tidyselect
+syntax (e.g., \code{var}, \code{c(var1, var2)}, \code{starts_with("prefix")}).
+For \code{calibrated_summary}, a character vector of base outcome names
+(e.g., \code{c("voteshare", "turnout")}), or \code{NULL} (default) to
+auto-detect from columns ending in \code{_mean} that have paired \code{_se}
+columns. For \code{calibrated_draws}, a required character vector of
+outcome column names in \code{x$results} (no auto-detection).}
 
-\item{se_suffix}{Character suffix for the columns containing standard errors
-for the cell-level estimates of \code{outcomes}. Defaults to "_se", so if the
-outcome is \code{voteshare}, the cell-level standard errors will be stored in
-a column called \code{voteshare_se}.}
+\item{ses}{(Default method only) Logical. Should standard errors be computed
+for the poststratified estimates under the assumption of independence across
+cells? See Details. Not valid for classed methods; use
+\code{posterior_summary = TRUE} for \code{calibrated_draws}.}
 
-\item{weight}{A variable giving the population weights in \code{ps_table}.}
+\item{se_suffix}{(Default method only) Character suffix for the SE columns.
+Defaults to \code{"_se"}.}
 
-\item{by}{One or more grouping variables. Accepts tidyselect syntax.}
+\item{weight}{Population weight column (bare name, NSE).}
 
-\item{n_out}{Name of the output column that stores the total weight per group.}
+\item{by}{Grouping variable(s) (bare name(s), tidyselect syntax).}
 
-\item{na.rm}{Should missing values in \code{vars} be ignored? Defaults to \code{TRUE}.}
+\item{n_out}{Name of the column storing total weight per group. Default
+\code{"n"}.}
+
+\item{na.rm}{Logical. Ignore NAs? Default \code{TRUE}.}
+
+\item{posterior_summary}{(\code{calibrated_draws} method only) Logical.
+If \code{TRUE} (default), collapse across posterior draws and return
+\code{<outcome>_mean} and \code{<outcome>_sd} columns. If \code{FALSE},
+return one row per draw x by-group combination with bare \code{<outcome>}
+columns.}
 }
 \value{
-A data frame with one row per group in \code{by} and columns for each variable in
-\code{outcomes} containing the poststratified estimates.
+A tibble. Shape depends on method and arguments:
+\itemize{
+\item Default: one row per by-group; columns are \code{by}, outcomes,
+(SE columns if \code{ses = TRUE}), and \code{n_out}.
+\item \code{calibrated_summary}: one row per by-group; columns are
+\code{by}, interleaved \code{<outcome>_mean} / \code{<outcome>_se}
+pairs, and \code{n_out}.
+\item \code{calibrated_draws} with \code{posterior_summary = TRUE}: one
+row per by-group; columns are \code{by}, interleaved
+\code{<outcome>_mean} / \code{<outcome>_sd} pairs, and \code{n_out}.
+\item \code{calibrated_draws} with \code{posterior_summary = FALSE}: one
+row per draw x by-group; columns are \code{.draw}, \code{by},
+outcomes, and \code{n_out}.
+}
 }
 \description{
 Compute weighted means for one or more outcome variables using
-poststratification weights, grouped by specified variables (typically geographies
-or demographic groups). Returns a tidy data frame with one row per group
-and one column per poststratified variable, plus the total population weight
-for each group. Optionally estimates uncertainty if cell-level standard errors
-are provided.
+poststratification weights, grouped by specified variables. Accepts a
+plain data frame (default method), a \code{\link{calibrate_mrp}} result
+summarized as posterior means and SEs (\code{calibrated_summary}), or a
+full posterior draws result (\code{calibrated_draws}).
 }
 \details{
-When the \code{outcomes} in \code{ps_table} are posterior means from a multilevel model,
-the resulting poststratified estimates are also posterior means. The uncertainty
-estimation assumes that there is 0 covariance between cell-level posterior means
-and computes the standard errors as \eqn{\sqrt{\sum_c w_c^2 \sigma_c^2 / (\sum w_c)^2}},
-where \eqn{w_c} is the weight for cell \eqn{c} and \eqn{\sigma_c^2} is the
-standard error of the posterior mean in cell \eqn{c}.
-This feature is useful when first summarize the posterior of the multilevel
-model at the cell level, then use this summary for downstream analysis. This
+\strong{Default method}: Accepts any data frame where each row is a
+poststratification cell. Poststratifies using \code{weighted.mean()}.
+When \code{ses = TRUE}, propagates uncertainty under the
+independence-across-cells assumption: the SE for each by-group is
+\eqn{\sqrt{\sum_c w_c^2 \sigma_c^2 / (\sum_c w_c)^2}}, where \eqn{w_c}
+is the cell weight and \eqn{\sigma_c^2} is the cell-level variance. This
 two-step procedure is more efficient in terms of storage and computation than
-full Bayesian inference, which involves computing the final quantity of interest
-separately for each draw from the posterior. However, the assumption of
-independence across cells is typically unrealistic, and so full Bayesian inference
-should typically yield more accurate uncertainty estimates.
+full Bayesian inference, but the independence assumption is typically
+unrealistic.
+
+\strong{\code{calibrated_summary} method}: Accepts a \code{calibrated_summary}
+list from \code{\link{calibrate_mrp}} (produced with \code{method = "plugin"}
+or \code{method = "bayes"} with \code{posterior_summary = TRUE}). Extracts
+\code{x$results}, identifies outcome columns by the \code{_mean} / \code{_se}
+suffix pairs, and returns a tibble with \code{<outcome>_mean} and
+\code{<outcome>_se} columns per by-group.
+
+\strong{\code{calibrated_draws} method}: Accepts a \code{calibrated_draws} list
+from \code{\link{calibrate_mrp}} (produced with
+\code{method = "bayes", posterior_summary = FALSE}). Poststratifies each
+posterior draw separately. When \code{posterior_summary = TRUE} (default),
+returns \code{<outcome>_mean} and \code{<outcome>_sd} columns per by-group.
+Note that \code{_sd} is the posterior SD across draws, which is conceptually
+distinct from the cell-level-independence-formula SE returned by the default
+method's \code{ses = TRUE} path. When \code{posterior_summary = FALSE},
+returns one row per draw x by-group with bare \code{<outcome>} columns and
+a \code{.draw} column.
 }
 \examples{
-# Example poststrat table
+# --- Default method ---
 ps <- data.frame(
   county = rep(c("A", "B"), each = 3),
   demo_group = rep(c(1, 2), 3),
@@ -76,14 +141,36 @@ ps <- data.frame(
   estimate_se = c(0.05, 0.04, 0.06, 0.03, 0.02, 0.05),
   N = c(100, 200, 300, 150, 250, 100)
 )
+poststratify(ps_table = ps, outcomes = estimate, ses = TRUE,
+             weight = N, by = county)
 
-# Poststratify cell_est to counties
-poststratify(
-  ps_table = ps,
-  outcomes = estimate,
-  ses = TRUE,
-  weight = N,
-  by = county
+# --- calibrated_summary method (mock object) ---
+cs_results <- tibble::tibble(
+  .cellid        = 1:4,
+  state          = c("PA", "PA", "OH", "OH"),
+  est_n          = c(100, 200, 150, 50),
+  voteshare_mean = c(0.55, 0.60, 0.48, 0.52),
+  voteshare_se   = c(0.03, 0.02, 0.04, 0.03)
 )
+cs_obj <- structure(list(results = cs_results),
+                    class = c("calibratedMRP", "calibrated_summary", "list"))
+poststratify(cs_obj, weight = est_n, by = state)
 
+# --- calibrated_draws method (mock object) ---
+cd_results <- tibble::tibble(
+  .cellid   = rep(1:4, 3),
+  .draw     = rep(1:3, each = 4),
+  state     = rep(c("PA", "PA", "OH", "OH"), 3),
+  est_n     = rep(c(100, 200, 150, 50), 3),
+  voteshare = c(0.55, 0.60, 0.48, 0.52,
+                0.57, 0.62, 0.50, 0.54,
+                0.53, 0.58, 0.46, 0.50)
+)
+cd_obj <- structure(list(results = cd_results),
+                    class = c("calibratedMRP", "calibrated_draws", "list"))
+# Returns posterior mean and SD per state:
+poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state)
+# Returns full per-draw estimates:
+poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state,
+             posterior_summary = FALSE)
 }

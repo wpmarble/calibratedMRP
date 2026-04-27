@@ -60,7 +60,7 @@ Blue fill = files modified in Run 1 (2026-04-27-code-review-fixes).
 | `R/calibrate-preds.R` | Core | Apply pre-computed shifts to cell predictions on logit scale | `calibrate_preds()` | no |
 | `R/generate_cell_estimates.R` | Core | Extract batched posterior summaries from `brms` model using Welford's online algorithm | `generate_cell_estimates()` | yes |
 | `R/get_re_covariance.R` | Support | Extract geographic random effect covariance from `brms` posterior | `get_re_covariance()` | yes |
-| `R/poststratify.R` | Support | Weighted aggregation from cell level to geography level; SE propagation | `poststratify()` | yes |
+| `R/poststratify.R` | Support | S3 generic + methods for weighted aggregation; default (plain data frame), calibrated_summary, calibrated_draws | `poststratify()` | Run 2 |
 | `R/zzz.R` | Init | Package-level environment (`.calibratedMRP_env`); initialized at namespace load | — | yes (new file) |
 
 ---
@@ -142,7 +142,10 @@ graph TD
 | `calibrate_preds()` | `calibrate-preds.R` | yes | `calibrate_mrp`, user | Apply shifts on logit scale to cell predictions | no |
 | `normalize_preds()` | `logit-shift.R` | yes | `logit_shift_aux`, user | Rescale predictions to satisfy sum constraints | yes |
 | `get_re_covariance()` | `get_re_covariance.R` | yes | `calibrate_mrp`, user | Extract RE covariance matrix from brms posterior | yes |
-| `poststratify()` | `poststratify.R` | yes | `calibrate_mrp`, user | Weighted aggregation to geography level with optional SE | yes |
+| `poststratify()` | `poststratify.R` | yes | `calibrate_mrp`, user | S3 generic; dispatches to method based on class of first argument | Run 2 |
+| `poststratify.default()` | `poststratify.R` | no (S3 method) | `poststratify()` dispatch | Default: weighted aggregation on plain data frame | Run 2 |
+| `poststratify.calibrated_summary()` | `poststratify.R` | no (S3 method) | `poststratify()` dispatch | Poststratify calibrated_summary object | Run 2 |
+| `poststratify.calibrated_draws()` | `poststratify.R` | no (S3 method) | `poststratify()` dispatch | Poststratify calibrated_draws object per draw | Run 2 |
 
 ---
 
@@ -225,7 +228,9 @@ This works because the `outcomes` quosure is captured via `rlang::enquo()` befor
 | `calibrated_summary` | `method = "plugin"` or `method = "bayes"` with `posterior_summary = TRUE` | Poststratified estimates, geography-level shifts |
 | `calibrated_draws` | `method = "bayes"` with `posterior_summary = FALSE` | Full per-draw cell-level predictions with `.draw` column |
 
-No S3 methods are currently registered for these classes. Downstream analysis requires manual summarization (e.g., `group_by(geography) |> summarise(mean(estimate))`).
+`poststratify()` is an S3 generic with methods for both classes:
+- `poststratify.calibrated_summary`: extracts `$results`, poststratifies `_mean` columns with `_se` propagation.
+- `poststratify.calibrated_draws`: poststratifies per draw; with `posterior_summary = TRUE` (default) returns `<outcome>_mean` and `<outcome>_sd` per by-group; with `posterior_summary = FALSE` returns the full per-draw tibble with `.draw` column.
 
 ---
 

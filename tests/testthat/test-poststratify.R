@@ -225,3 +225,252 @@ test_that("poststratify ses=TRUE works with multi-variable by", {
   # Reset flag
   .calibratedMRP_env$poststratify_se_warned <- FALSE
 })
+
+
+# poststratify.calibrated_summary ------------------------------------------
+
+# Helper: build a minimal calibrated_summary mock
+make_cs_obj <- function() {
+  results <- tibble::tibble(
+    .cellid        = 1:4,
+    state          = c("PA", "PA", "OH", "OH"),
+    est_n          = c(100L, 200L, 150L, 50L),
+    voteshare_mean = c(0.55, 0.60, 0.48, 0.52),
+    voteshare_se   = c(0.03, 0.02, 0.04, 0.03),
+    turnout_mean   = c(0.70, 0.65, 0.60, 0.55),
+    turnout_se     = c(0.05, 0.04, 0.06, 0.07)
+  )
+  structure(list(results = results),
+            class = c("calibratedMRP", "calibrated_summary", "list"))
+}
+
+test_that("poststratify.calibrated_summary auto-detects outcomes from _mean/_se pairs", {
+  cs_obj <- make_cs_obj()
+  result <- poststratify(cs_obj, weight = est_n, by = state)
+
+  expect_s3_class(result, "tbl_df")
+  expect_equal(nrow(result), 2L)
+  expect_true("voteshare_mean" %in% names(result))
+  expect_true("voteshare_se"   %in% names(result))
+  expect_true("turnout_mean"   %in% names(result))
+  expect_true("turnout_se"     %in% names(result))
+  expect_true("n"              %in% names(result))
+})
+
+
+test_that("poststratify.calibrated_summary column order is correct", {
+  cs_obj <- make_cs_obj()
+  result <- poststratify(cs_obj, weight = est_n, by = state)
+
+  expected_cols <- c("state", "voteshare_mean", "voteshare_se",
+                     "turnout_mean", "turnout_se", "n")
+  expect_equal(names(result), expected_cols)
+})
+
+
+test_that("poststratify.calibrated_summary weighted mean matches manual computation", {
+  cs_obj <- make_cs_obj()
+  result <- poststratify(cs_obj, weight = est_n, by = state)
+
+  # PA: cells with est_n 100 and 200
+  pa_wm <- weighted.mean(c(0.55, 0.60), c(100, 200))
+  oh_wm <- weighted.mean(c(0.48, 0.52), c(150, 50))
+
+  expect_equal(result$voteshare_mean[result$state == "PA"], pa_wm, tolerance = 1e-12)
+  expect_equal(result$voteshare_mean[result$state == "OH"], oh_wm, tolerance = 1e-12)
+})
+
+
+test_that("poststratify.calibrated_summary SE propagation matches formula", {
+  cs_obj <- make_cs_obj()
+  result <- poststratify(cs_obj, weight = est_n, by = state)
+
+  # PA: sqrt(sum(w^2 * se^2) / sum(w)^2)
+  w_pa  <- c(100, 200)
+  se_pa <- c(0.03, 0.02)
+  expected_pa_se <- sqrt(sum(w_pa^2 * se_pa^2) / sum(w_pa)^2)
+
+  expect_equal(result$voteshare_se[result$state == "PA"], expected_pa_se, tolerance = 1e-12)
+})
+
+
+test_that("poststratify.calibrated_summary with explicit outcomes subsets correctly", {
+  cs_obj <- make_cs_obj()
+  result <- poststratify(cs_obj, outcomes = "voteshare", weight = est_n, by = state)
+
+  expect_true("voteshare_mean" %in% names(result))
+  expect_true("voteshare_se"   %in% names(result))
+  expect_false("turnout_mean"  %in% names(result))
+  expect_false("turnout_se"    %in% names(result))
+})
+
+
+test_that("poststratify.calibrated_summary errors on invalid explicit outcomes", {
+  cs_obj <- make_cs_obj()
+  expect_error(
+    poststratify(cs_obj, outcomes = "nonexistent", weight = est_n, by = state),
+    "missing from"
+  )
+})
+
+
+test_that("poststratify.calibrated_summary is numerically equivalent to manual default call", {
+  # Manual equivalent: call default on results with explicit _mean cols and ses=TRUE
+  cs_obj <- make_cs_obj()
+  auto_result <- poststratify(cs_obj, outcomes = "voteshare", weight = est_n, by = state)
+
+  # Manual SE formula applied directly
+  res <- cs_obj$results
+  pa  <- res[res$state == "PA", ]
+  oh  <- res[res$state == "OH", ]
+
+  pa_mean <- weighted.mean(pa$voteshare_mean, pa$est_n)
+  oh_mean <- weighted.mean(oh$voteshare_mean, oh$est_n)
+  pa_se   <- sqrt(sum(pa$est_n^2 * pa$voteshare_se^2) / sum(pa$est_n)^2)
+  oh_se   <- sqrt(sum(oh$est_n^2 * oh$voteshare_se^2) / sum(oh$est_n)^2)
+
+  expect_equal(auto_result$voteshare_mean[auto_result$state == "PA"], pa_mean, tolerance = 1e-12)
+  expect_equal(auto_result$voteshare_mean[auto_result$state == "OH"], oh_mean, tolerance = 1e-12)
+  expect_equal(auto_result$voteshare_se[auto_result$state == "PA"],   pa_se,   tolerance = 1e-12)
+  expect_equal(auto_result$voteshare_se[auto_result$state == "OH"],   oh_se,   tolerance = 1e-12)
+})
+
+
+test_that("poststratify.calibrated_summary weight sums are correct", {
+  cs_obj <- make_cs_obj()
+  result <- poststratify(cs_obj, weight = est_n, by = state)
+
+  expect_equal(result$n[result$state == "PA"], 300)
+  expect_equal(result$n[result$state == "OH"], 200)
+})
+
+
+# poststratify.calibrated_draws --------------------------------------------
+
+# Helper: build a minimal calibrated_draws mock
+make_cd_obj <- function() {
+  results <- tibble::tibble(
+    .cellid   = rep(1:4, 4),
+    .draw     = rep(1:4, each = 4),
+    state     = rep(c("PA", "PA", "OH", "OH"), 4),
+    est_n     = rep(c(100L, 200L, 150L, 50L), 4),
+    voteshare = c(
+      0.55, 0.60, 0.48, 0.52,
+      0.57, 0.62, 0.50, 0.54,
+      0.53, 0.58, 0.46, 0.50,
+      0.56, 0.61, 0.49, 0.53
+    ),
+    turnout   = c(
+      0.70, 0.65, 0.60, 0.55,
+      0.72, 0.67, 0.62, 0.57,
+      0.68, 0.63, 0.58, 0.53,
+      0.71, 0.66, 0.61, 0.56
+    )
+  )
+  structure(list(results = results),
+            class = c("calibratedMRP", "calibrated_draws", "list"))
+}
+
+
+test_that("poststratify.calibrated_draws summarized returns mean and SD columns", {
+  cd_obj <- make_cd_obj()
+  result <- poststratify(cd_obj, outcomes = c("voteshare", "turnout"),
+                          weight = est_n, by = state)
+
+  expect_s3_class(result, "tbl_df")
+  expect_equal(nrow(result), 2L)
+  expect_true("voteshare_mean" %in% names(result))
+  expect_true("voteshare_sd"   %in% names(result))
+  expect_true("turnout_mean"   %in% names(result))
+  expect_true("turnout_sd"     %in% names(result))
+  expect_true("n"              %in% names(result))
+})
+
+
+test_that("poststratify.calibrated_draws summarized column order is correct", {
+  cd_obj <- make_cd_obj()
+  result <- poststratify(cd_obj, outcomes = c("voteshare", "turnout"),
+                          weight = est_n, by = state)
+
+  expected_cols <- c("state", "voteshare_mean", "voteshare_sd",
+                     "turnout_mean", "turnout_sd", "n")
+  expect_equal(names(result), expected_cols)
+})
+
+
+test_that("poststratify.calibrated_draws posterior_summary=FALSE returns per-draw rows", {
+  cd_obj <- make_cd_obj()
+  result <- poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state,
+                          posterior_summary = FALSE)
+
+  # 4 draws x 2 states = 8 rows
+  expect_equal(nrow(result), 8L)
+  expect_true(".draw"     %in% names(result))
+  expect_true("state"     %in% names(result))
+  expect_true("voteshare" %in% names(result))
+  expect_true("n"         %in% names(result))
+  # .draw should be first
+  expect_equal(names(result)[1], ".draw")
+})
+
+
+test_that("poststratify.calibrated_draws per-draw means match manual weighted.mean", {
+  cd_obj <- make_cd_obj()
+  result <- poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state,
+                          posterior_summary = FALSE)
+
+  # Manual: draw 1, PA
+  res <- cd_obj$results
+  d1_pa <- res[res$.draw == 1 & res$state == "PA", ]
+  expected_d1_pa <- weighted.mean(d1_pa$voteshare, d1_pa$est_n)
+
+  actual_d1_pa <- result$voteshare[result$.draw == 1 & result$state == "PA"]
+  expect_equal(actual_d1_pa, expected_d1_pa, tolerance = 1e-12)
+})
+
+
+test_that("poststratify.calibrated_draws summarized mean matches mean of per-draw means", {
+  cd_obj <- make_cd_obj()
+  draws_result <- poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state,
+                                posterior_summary = FALSE)
+  summary_result <- poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state,
+                                  posterior_summary = TRUE)
+
+  # Mean of per-draw means for PA
+  pa_draw_means <- draws_result$voteshare[draws_result$state == "PA"]
+  expected_pa_mean <- mean(pa_draw_means)
+  expected_pa_sd   <- stats::sd(pa_draw_means)
+
+  actual_pa_mean <- summary_result$voteshare_mean[summary_result$state == "PA"]
+  actual_pa_sd   <- summary_result$voteshare_sd[summary_result$state == "PA"]
+
+  expect_equal(actual_pa_mean, expected_pa_mean, tolerance = 1e-12)
+  expect_equal(actual_pa_sd,   expected_pa_sd,   tolerance = 1e-12)
+})
+
+
+test_that("poststratify.calibrated_draws errors if ses=TRUE", {
+  cd_obj <- make_cd_obj()
+  expect_error(
+    poststratify(cd_obj, outcomes = "voteshare", weight = est_n, by = state, ses = TRUE),
+    "ses.*argument is not supported"
+  )
+})
+
+
+test_that("poststratify.calibrated_draws errors if outcomes is NULL or missing", {
+  cd_obj <- make_cd_obj()
+  expect_error(
+    poststratify(cd_obj, weight = est_n, by = state),
+    "'outcomes' must be specified"
+  )
+})
+
+
+test_that("poststratify.calibrated_draws errors if outcomes not in results", {
+  cd_obj <- make_cd_obj()
+  expect_error(
+    poststratify(cd_obj, outcomes = "nonexistent", weight = est_n, by = state),
+    "missing from"
+  )
+})

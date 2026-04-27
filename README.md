@@ -162,56 +162,36 @@ calib_res <- calibrate_mrp(model = mod,
 
 ## Step 3: Poststratify
 
-Finally, we can poststratify to whatever level is of interest, using the
-`poststratify()` function. Here we’ll poststratify to the county level.
-Because we are working in a Bayesian framework, we will poststratify
-once for each draw from the posterior, using `purrr::map()`, then
-average these results together to obtain our posterior mean estimates.
+The `poststratify()` function can be called directly on the output of `calibrate_mrp()`.
+When passed a `calibrated_draws` object, it handles the per-draw iteration internally
+and returns a tidy tibble with `<outcome>_mean` and `<outcome>_sd` columns per geography.
 
 ``` r
-out_draws <- calib_res$results %>% 
-  group_split(.draw) %>% 
-  purrr::map(~ poststratify(.x, outcomes = c(starts_with("biden"), starts_with("presvote")),
-                            weight = est_n, by = countyfips)) %>% 
-  bind_rows(.id = ".draw") 
+out <- poststratify(calib_res,
+                    outcomes = c("bidenlegitimate", "bidenappr", "presvote2020twoparty"),
+                    weight   = est_n,
+                    by       = countyfips)
+head(out, 5)
+```
 
-out <- out_draws %>% 
-  summarise(across(c(starts_with("biden"), starts_with("presvote")),
-                   list(mean = mean,
-                        q5 = ~ quantile(.x, .05),
-                        q95 = ~ quantile(.x, .95))),
-            .by = countyfips)
-head(out, 20)
-#> # A tibble: 20 × 19
-#>    countyfips bidenlegitimate_mean bidenlegitimate_q5 bidenlegitimate_q95
-#>    <chr>                     <dbl>              <dbl>               <dbl>
-#>  1 42001                     0.592             0.412                0.747
-#>  2 42003                     0.697             0.651                0.742
-#>  3 42005                     0.344             0.0951               0.682
-#>  4 42007                     0.771             0.662                0.866
-#>  5 42009                     0.240             0.0914               0.425
-#>  6 42011                     0.611             0.521                0.702
-#>  7 42013                     0.325             0.204                0.469
-#>  8 42015                     0.381             0.164                0.629
-#>  9 42017                     0.687             0.605                0.766
-#> 10 42019                     0.495             0.397                0.600
-#> 11 42021                     0.268             0.120                0.430
-#> 12 42023                     0.338             0.0847               0.687
-#> 13 42025                     0.504             0.343                0.667
-#> 14 42027                     0.528             0.406                0.640
-#> 15 42029                     0.751             0.695                0.802
-#> 16 42031                     0.185             0.0490               0.391
-#> 17 42033                     0.322             0.166                0.505
-#> 18 42035                     0.213             0.0578               0.411
-#> 19 42037                     0.346             0.184                0.536
-#> 20 42039                     0.351             0.166                0.585
-#> # ℹ 15 more variables: bidenappr_mean <dbl>, bidenappr_q5 <dbl>,
-#> #   bidenappr_q95 <dbl>, bidenlegitimate_calib_mean <dbl>,
-#> #   bidenlegitimate_calib_q5 <dbl>, bidenlegitimate_calib_q95 <dbl>,
-#> #   bidenappr_calib_mean <dbl>, bidenappr_calib_q5 <dbl>,
-#> #   bidenappr_calib_q95 <dbl>, presvote2020twoparty_mean <dbl>,
-#> #   presvote2020twoparty_q5 <dbl>, presvote2020twoparty_q95 <dbl>,
-#> #   presvote2020twoparty_calib_mean <dbl>, …
+For users who need full per-draw estimates (e.g., to compute custom quantiles),
+pass `posterior_summary = FALSE`:
+
+``` r
+out_draws <- poststratify(calib_res,
+                           outcomes = c("bidenlegitimate", "bidenappr", "presvote2020twoparty"),
+                           weight   = est_n,
+                           by       = countyfips,
+                           posterior_summary = FALSE)
+
+# Compute quantile intervals manually:
+out_quantiles <- out_draws |>
+  dplyr::summarise(
+    dplyr::across(c(bidenlegitimate, bidenappr, presvote2020twoparty),
+                  list(mean = mean, q5 = \(x) quantile(x, .05),
+                       q95 = \(x) quantile(x, .95))),
+    .by = countyfips
+  )
 ```
 
 ## Step 4: Visualize results

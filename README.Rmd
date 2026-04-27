@@ -121,22 +121,36 @@ calib_res <- calibrate_mrp(model = mod,
 
 ## Step 3: Poststratify
 
-Finally, we can poststratify to whatever level is of interest, using the `poststratify()` function. Here we'll poststratify to the county level. Because we are working in a Bayesian framework, we will poststratify once for each draw from the posterior, using `purrr::map()`, then average these results together to obtain our posterior mean estimates.
+The `poststratify()` function can be called directly on the output of `calibrate_mrp()`.
+When passed a `calibrated_draws` object, it handles the per-draw iteration internally
+and returns a tidy tibble with `<outcome>_mean` and `<outcome>_sd` columns per geography.
 
 ```{r ps, eval=TRUE}
-out_draws <- calib_res$results %>% 
-  group_split(.draw) %>% 
-  purrr::map(~ poststratify(.x, outcomes = c(starts_with("biden"), starts_with("presvote")),
-                            weight = est_n, by = countyfips)) %>% 
-  bind_rows(.id = ".draw") 
+out <- poststratify(calib_res,
+                    outcomes = c("bidenlegitimate", "bidenappr", "presvote2020twoparty"),
+                    weight   = est_n,
+                    by       = countyfips)
+head(out, 5)
+```
 
-out <- out_draws %>% 
-  summarise(across(c(starts_with("biden"), starts_with("presvote")),
-                   list(mean = mean,
-                        q5 = ~ quantile(.x, .05),
-                        q95 = ~ quantile(.x, .95))),
-            .by = countyfips)
-head(out, 20)
+For users who need full per-draw estimates (e.g., to compute custom quantiles),
+pass `posterior_summary = FALSE`:
+
+```{r ps-draws, eval=FALSE}
+out_draws <- poststratify(calib_res,
+                           outcomes = c("bidenlegitimate", "bidenappr", "presvote2020twoparty"),
+                           weight   = est_n,
+                           by       = countyfips,
+                           posterior_summary = FALSE)
+
+# Compute quantile intervals manually:
+out_quantiles <- out_draws |>
+  dplyr::summarise(
+    dplyr::across(c(bidenlegitimate, bidenappr, presvote2020twoparty),
+                  list(mean = mean, q5 = \(x) quantile(x, .05),
+                       q95 = \(x) quantile(x, .95))),
+    .by = countyfips
+  )
 ```
 
 
