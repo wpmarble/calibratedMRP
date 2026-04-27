@@ -38,7 +38,8 @@ If \code{NULL}, the outcome names are inferred from the \code{model} formula.}
 \item{method}{Calibration method, either \code{"plugin"} or \code{"bayes"}.
 Plug-in estimates use posterior means of predictions and correlations across outcomes
 to compute logit shifts for calibration. Bayesian estimates compute the logit shifts
-separately for each posterior draw, which are then summarized. Defaults to \code{"plugin"}.}
+separately for each posterior draw. Defaults to \code{"plugin"}, which is less computationally
+intensive.}
 
 \item{posterior_summary}{If \code{method = "bayes"}, should the function return all
 draws from the posterior or summarize and return the posterior mean and SD?}
@@ -72,7 +73,9 @@ cells in the poststratification table according to their row number in \code{ps_
 \description{
 This is the top-level function for generating calibrated MRP estimates. It takes
 a fitted multivariate \code{brms} model, a poststratification table, and calibration
-targets, and returns a data frame with calibrated estimates of
+targets, and returns a data frame with calibrated estimates of the outcomes,
+along with the geography-specific intercept shifts that were applied to each
+outcome.
 }
 \details{
 This function supports two estimation approaches, a plug-in estimator and a

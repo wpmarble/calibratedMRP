@@ -1,10 +1,10 @@
 Package: calibratedMRP
 Title: Calibrated Multilevel Regression and Poststratification
-Version: 0.0.1.0000
+Version: 0.0.0.9000
 Authors@R: 
     person("William", "Marble", , "marble.will@gmail.com", role = c("aut", "cre"), comment = c(ORCID = "0000-0001-9352-5540"))
 Description: Provides tools for small area estimation using multilevel 
-    regression and poststratification (MRP). Provides a user-friendly interfaces enabling researchers to calibrate MRP predictions to known population targets at arbitrary levels of geography. Estimates of outcomes without known population targets can be unpdated using the calibration procedure developed in Marble and Clinton (2025).
+    regression and poststratification (MRP). Provides a user-friendly interfaces enabling researchers to calibrate MRP predictions to known population targets at arbitrary levels of geography. Estimates of outcomes without known population targets can be updated using the calibration procedure developed in Marble and Clinton (2025).
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -29,4 +29,4 @@ Imports:
     stringr,
     progress,
     formula.tools
-# VignetteBuilder: knitr
+VignetteBuilder: knitr

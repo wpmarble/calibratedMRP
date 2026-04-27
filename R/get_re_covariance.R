@@ -21,7 +21,7 @@
 #'   If NULL (the default), all draws are used.
 #' @param show_progress Show a progress bar while constructing array? Applies if `tidy = FALSE`
 #' @importFrom tidybayes spread_draws
-#' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols `%>%` case_when
+#' @importFrom dplyr filter select rename_with mutate arrange group_by group_split bind_cols case_when
 #' @importFrom tidyr pivot_longer pivot_wider
 #' @importFrom tidyselect everything starts_with
 #' @export
@@ -71,11 +71,11 @@ get_re_covariance <- function(model,
       ))
 
   todrop <- "sd_|cor_"
-  out <- out %>%
+  out <- out |>
     mutate(param = stringr::str_remove(param, todrop))
 
 
-  out <- out %>%
+  out <- out |>
     mutate(param1 = stringr::str_split(param, "_", simplify = TRUE)[,1],
            param2 = stringr::str_split(param, "_", simplify = TRUE)[,2]) |>
     mutate(param2 = ifelse(param2 == "", param1, param2)) |>

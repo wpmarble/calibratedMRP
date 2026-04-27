@@ -12,9 +12,6 @@
 ## namely inv.logit( logit(x) + a.star ).
 
 
-# Package-level environment variables
-.calibratedMRP_env <- new.env(parent = emptyenv())
-.calibratedMRP_env$poststratify_se_warned <- FALSE
 
 
 
@@ -38,7 +35,7 @@
 #' @export
 #'
 #' @importFrom tibble tibble
-#' @importFrom dplyr mutate select filter summarise rename left_join across any_of `%>%` bind_rows bind_cols
+#' @importFrom dplyr mutate select filter summarise rename left_join across any_of bind_rows bind_cols
 #' @importFrom rlang sym enquo enquos `!!`
 #' @examples
 #' ## Example poststratification table with predictions for voteshare and turnout
@@ -105,9 +102,11 @@ logit_shift <- function(ps_table,
     calib_names <- names(tidyselect::eval_select(rlang::enquo(outcomes), targets))
 
     if (length(var_names) != length(calib_names)) {
+      var_names_str   <- paste(var_names,   collapse = ", ")
+      calib_names_str <- paste(calib_names, collapse = ", ")
       rlang::abort(c("Not all `outcomes` appear in both `ps_table` and `targets`",
-                     "*" = "Variables in `ps_table`: {paste(var_names, collapse = ', ')}",
-                     "*" = "Variables in `targets`: {paste(calib_names, collapse = ', ')}"))
+                     "*" = paste0("Variables in `ps_table`: ", var_names_str),
+                     "*" = paste0("Variables in `targets`: ",  calib_names_str)))
     }
 
     var_names <- sort(var_names)
@@ -203,13 +202,6 @@ logit_shift_single = function(ps_table,
                               calib_target,
                               calib_var) {
 
-  # var        <- rlang::as_name(rlang::ensym(outcome))
-  # print(sprintf("`outcome` argument evaluates to: %s", var))
-  # weight     <- rlang::as_name(rlang::ensym(weight))
-  # geography  <- rlang::as_name(rlang::ensym(geography))
-  # calib_var  <- rlang::as_name(rlang::ensym(calib_var))
-
-
   ps <- ps_table |>
     dplyr::select(pred = all_of(outcome),
                   weight = all_of(weight),
@@ -230,7 +222,7 @@ logit_shift_single = function(ps_table,
 
 
   # calculate logit shift for each geography
-  shifts <- unique(ps$geography) %>%
+  shifts <- unique(ps$geography) |>
     furrr::future_map(\(g) {
 
       # subset PS table and target to this geography
@@ -317,7 +309,8 @@ logit_shift_aux <- function(shift,
 #'   example, if `vars = list(c(v1, v2), c(v3, v4))` and `constraints = c(1, 2)`,
 #'   this function will enforce the following constraints for each row in `preds`:
 #'   `v1 + v2 = 1` and `v3 + v4 = 2`.
-
+#'
+#' @export
 normalize_preds <- function(preds, vars, constraints = rep(1, length(vars))) {
 
   force(constraints)

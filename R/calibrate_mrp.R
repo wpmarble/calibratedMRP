@@ -97,7 +97,7 @@ calibrate_mrp <- function(model,
                           keep_uncalib = FALSE,
                           keep_all_ps_vars = FALSE
                           ) {
-  if (class(model) != "brmsfit") rlang::abort("`model` must be a `brmsfit` object")
+  if (!inherits(model, "brmsfit")) rlang::abort("`model` must be a `brmsfit` object")
   if (!method %in% c("plugin", "bayes")) rlang::abort("`method` must be either 'plugin' or 'bayes'")
   if (is.null(draw_ids)) draw_ids <- seq_len(posterior::ndraws(model))
 
@@ -105,7 +105,6 @@ calibrate_mrp <- function(model,
   # capture NSE inputs
   weight_quo <- rlang::enquo(weight)
   geo_quo <- rlang::enquo(geography)
-  outcomes_quo <- rlang::enquo(outcomes)
 
   # resolve to strings
   weight_var <- rlang::as_name(weight_quo)

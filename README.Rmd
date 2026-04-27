@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 
 The `calibratedMRP` package implements tools for small-area estimation using multilevel regression and poststratification (MRP) with calibration to known population-level margins. The package features user-friendly functions for performing the calibration and poststratification steps, and is designed to work with models estimated using the `brms` package. 
 
-The top-level functions is `calibrate_mrp()`, which takes as its input a fitted `brms` model, a poststratification table, and known population-level margins for one or more outcomes. It returns the poststratification table with the calibrated estimates appended, along with other information about the calibration procedure. The `poststratify()` function can then be used to poststratify the calibrated estimates to whatever level is of interest.
+The top-level function is `calibrate_mrp()`, which takes as its input a fitted `brms` model, a poststratification table, and known population-level margins for one or more outcomes. It returns the poststratification table with the calibrated estimates appended, along with other information about the calibration procedure. The `poststratify()` function can then be used to poststratify the calibrated estimates to whatever level is of interest.
 
 This package implements methods from [Marble and Clinton, 2025](https://osf.io/preprints/socarxiv/u3ekq_v1). 
 
@@ -106,7 +106,7 @@ mod <- brm(formula = formula,
 
 ## Step 2: Calibrate MRP estimates
 
-Next, the `calibrate_mrp()` function generates estimates of outcomes, ensuring that the estimates match known population-level margins stored in `targets`. Outcomes with known margins will be calibrated to match exactly. Other outcomes will be adjusted according to their correlation with the outcomes with gorund-truth data. Here, we will calibrate to known county-level margins for `presvote2020_twoparty`, and estimates for `biden_legitimate` and `biden_appr` will be adjusted accordingly. For illustration, we'll just include data from Pennsylvania and only perform the calibration for a subset of the posterior draws.
+Next, the `calibrate_mrp()` function generates estimates of outcomes, ensuring that the estimates match known population-level margins stored in `targets`. Outcomes with known margins will be calibrated to match exactly. Other outcomes will be adjusted according to their correlation with the outcomes with ground-truth data. Here, we will calibrate to known county-level margins for `presvote2020_twoparty`, and estimates for `biden_legitimate` and `biden_appr` will be adjusted accordingly. For illustration, we'll just include data from Pennsylvania and only perform the calibration for a subset of the posterior draws.
 
 ```{r calib, eval=TRUE}
 calib_res <- calibrate_mrp(model = mod, 

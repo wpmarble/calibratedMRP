@@ -74,17 +74,17 @@ poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
                          weight, by, n_out = "n", na.rm = TRUE) {
 
 
-  group_vars <- rlang::enquo(by)
   weight_var <- rlang::enquo(weight)
   mean_vars <- tidyselect::eval_select(rlang::enquo(outcomes), ps_table) |> names()
+  by_chr <- names(tidyselect::eval_select(rlang::enquo(by), ps_table))
   se_vars <- paste0(mean_vars, se_suffix)
 
 
-  out <- ps_table %>%
+  out <- ps_table |>
     dplyr::summarise(dplyr::across({{ outcomes }},
                                    \(x) stats::weighted.mean(x, {{ weight }}, na.rm = na.rm)),
                      {{ n_out }} := sum({{ weight }}, na.rm = na.rm),
-                     .by = {{ by }})
+                     .by = dplyr::all_of(by_chr))
 
   if (ses) {
     if (!.calibratedMRP_env$poststratify_se_warned) {
@@ -95,16 +95,16 @@ poststratify <- function(ps_table, outcomes, ses = FALSE, se_suffix = "_se",
       .calibratedMRP_env$poststratify_se_warned <- TRUE
     }
 
-    out_se <- ps_table %>%
+    out_se <- ps_table |>
       dplyr::summarise(dplyr::across(all_of(se_vars),
                                      \(x) sqrt(sum({{ weight }}^2 * x^2, na.rm = na.rm)
                                                / sum({{ weight }}, na.rm = na.rm)^2 )),
-                       .by = {{ by }})
-    out <- left_join(out, out_se, by = rlang::englue("{{ by }}"))
+                       .by = dplyr::all_of(by_chr))
+    out <- dplyr::left_join(out, out_se, by = by_chr)
   }
 
   # Reorder columns: [grouping vars], outcome1, outcome1_se, outcome2, outcome2_se, ..., n_out
-  group_names <- names(out[tidyselect::eval_select(rlang::enquo(by), out)])
+  group_names <- by_chr
 
 
   mean_cols <- mean_vars

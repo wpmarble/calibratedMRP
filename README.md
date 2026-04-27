@@ -8,7 +8,7 @@ user-friendly functions for performing the calibration and
 poststratification steps, and is designed to work with models estimated
 using the `brms` package.
 
-The top-level functions is `calibrate_mrp()`, which takes as its input a
+The top-level function is `calibrate_mrp()`, which takes as its input a
 fitted `brms` model, a poststratification table, and known
 population-level margins for one or more outcomes. It returns the
 poststratification table with the calibrated estimates appended, along
@@ -124,7 +124,7 @@ Next, the `calibrate_mrp()` function generates estimates of outcomes,
 ensuring that the estimates match known population-level margins stored
 in `targets`. Outcomes with known margins will be calibrated to match
 exactly. Other outcomes will be adjusted according to their correlation
-with the outcomes with gorund-truth data. Here, we will calibrate to
+with the outcomes with ground-truth data. Here, we will calibrate to
 known county-level margins for `presvote2020_twoparty`, and estimates
 for `biden_legitimate` and `biden_appr` will be adjusted accordingly.
 For illustration, we’ll just include data from Pennsylvania and only

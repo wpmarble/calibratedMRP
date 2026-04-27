@@ -189,3 +189,39 @@ test_that("poststratify na.rm=FALSE propagates NAs", {
 
   expect_true(is.na(result$estimate))
 })
+
+
+test_that("poststratify ses=TRUE works with multi-variable by", {
+  .calibratedMRP_env$poststratify_se_warned <- FALSE
+
+  ps <- tibble::tibble(
+    state  = c("PA", "PA", "NY", "NY"),
+    county = c("A",  "B",  "C",  "D"),
+    estimate    = c(0.4, 0.6, 0.3, 0.7),
+    estimate_se = c(0.05, 0.03, 0.04, 0.02),
+    weight = c(100, 200, 150, 50)
+  )
+
+  result <- suppressMessages(
+    poststratify(ps, outcomes = estimate, ses = TRUE,
+                 weight = weight, by = c(state, county))
+  )
+
+  # Each (state, county) pair is a unique group => 4 rows
+  expect_equal(nrow(result), 4L)
+  expect_true("state"       %in% names(result))
+  expect_true("county"      %in% names(result))
+  expect_true("estimate"    %in% names(result))
+  expect_true("estimate_se" %in% names(result))
+
+  # For each single-cell group, SE = sqrt(w^2 * se^2) / sum(w)^2 = se (trivial)
+  # PA/A: sqrt(100^2 * 0.05^2 / 100^2) = 0.05
+  expect_equal(result$estimate_se[result$county == "A" & result$state == "PA"],
+               0.05, tolerance = 1e-10)
+  # NY/D: sqrt(50^2 * 0.02^2 / 50^2) = 0.02
+  expect_equal(result$estimate_se[result$county == "D" & result$state == "NY"],
+               0.02, tolerance = 1e-10)
+
+  # Reset flag
+  .calibratedMRP_env$poststratify_se_warned <- FALSE
+})

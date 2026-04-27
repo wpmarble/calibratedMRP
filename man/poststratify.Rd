@@ -24,7 +24,7 @@ and (optionally) \code{ses}.}
 Accepts tidyselect syntax (e.g., \code{var}, \code{c(var1, var2)}, \code{starts_with("prefix")}).
 These variables should include cell-level summaries of the outcomes of interest.}
 
-\item{ses}{Should standard errors be computed for the postratified estimates under
+\item{ses}{Should standard errors be computed for the poststratified estimates under
 the assumption of independence across cells? See details.}
 
 \item{se_suffix}{Character suffix for the columns containing standard errors
@@ -42,7 +42,7 @@ a column called \code{voteshare_se}.}
 }
 \value{
 A data frame with one row per group in \code{by} and columns for each variable in
-\code{vars} containing the postratified estimates.
+\code{outcomes} containing the poststratified estimates.
 }
 \description{
 Compute weighted means for one or more outcome variables using
@@ -54,7 +54,7 @@ are provided.
 }
 \details{
 When the \code{outcomes} in \code{ps_table} are posterior means from a multilevel model,
-the resulting postratified estimates are also posterior means. The uncertainty
+the resulting poststratified estimates are also posterior means. The uncertainty
 estimation assumes that there is 0 covariance between cell-level posterior means
 and computes the standard errors as \eqn{\sqrt{\sum_c w_c^2 \sigma_c^2 / (\sum w_c)^2}},
 where \eqn{w_c} is the weight for cell \eqn{c} and \eqn{\sigma_c^2} is the

@@ -71,7 +71,6 @@ generate_cell_estimates <- function(model,
   if (!inherits(model, "brmsfit")) rlang::abort("`model` must be a brmsfit object.")
 
 
-  outcomes_quo <- rlang::enquo(outcomes)
   if (is.null(outcomes)) {
     outcomes <- get_outcomes(model$formula)
     rlang::inform("No `outcomes` provided, inferring outcome variables from model formula")
@@ -167,16 +166,16 @@ generate_cell_estimates <- function(model,
 
 
     # Convert to tibble with cell index
-    pred_df <- tibble::as_tibble(cell_mean) %>%
-      dplyr::rename_with(\(x) paste0(x, outcome_suffix)) %>%
+    pred_df <- tibble::as_tibble(cell_mean) |>
+      dplyr::rename_with(\(x) paste0(x, outcome_suffix)) |>
       dplyr::mutate(.cell_id = dplyr::row_number())
 
-    se_df <- tibble::as_tibble(cell_sd) %>%
-      dplyr::rename_with(\(x) paste0(x, se_suffix)) %>%
+    se_df <- tibble::as_tibble(cell_sd) |>
+      dplyr::rename_with(\(x) paste0(x, se_suffix)) |>
       dplyr::mutate(.cell_id = dplyr::row_number())
 
     # Join and bind back to ps_table
-    preds <- dplyr::left_join(pred_df, se_df, by = ".cell_id") %>%
+    preds <- dplyr::left_join(pred_df, se_df, by = ".cell_id") |>
       dplyr::select(-.cell_id)
 
 
