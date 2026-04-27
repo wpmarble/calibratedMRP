@@ -49,7 +49,7 @@ graph TD
     style C3 fill:#1e90ff,stroke:#1565c0,color:#fff
 ```
 
-Blue fill = files modified in Run 1 (2026-04-27-code-review-fixes).
+Blue fill = files modified in Run 1 (2026-04-27-code-review-fixes) or Run 2 (2026-04-27-issue-1-poststratify-draws). `poststratify.R` was touched in both runs.
 
 ### Module Reference
 
