@@ -105,7 +105,9 @@ formula <- bf(
 )
 
 # Estimate model
-priors <- prior(normal(0, 5), class = b)
+# multivariate model: set the prior on b separately for each response
+priors <- set_prior("normal(0, 5)", class = "b",
+                    resp = brmsterms(formula)$responses)
 mod <- brm(formula = formula,
            data = surv,
            family = bernoulli,

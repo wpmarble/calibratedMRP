@@ -225,7 +225,9 @@ In this specification the covariance matrix $\Sigma$ is represented as a Cholesk
 Here we estimate the model using HMC, running 4 chains with 1000 iterations each. The first half of each chain will be discarded, so this will yield 2000 total posterior draws. Due to the complexity of the model we set `adapt_delta = 0.99` and `max_treedepth = 12` to ensure that the sampler converges properly.
 
 ```{r fit-model, eval=FALSE}
-priors <- prior(normal(0, 5), class = b)
+# multivariate model: set the prior on b separately for each response
+priors <- set_prior("normal(0, 5)", class = "b",
+                    resp = brmsterms(formula)$responses)
 
 # Fit model
 mod <- brm(formula = formula,

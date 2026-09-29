@@ -114,6 +114,13 @@ logit_shift <- function(ps_table,
     calib_names <- sort(calib_names)
   }
 
+  dup_geos <- unique(targets[[geo_var]][duplicated(targets[[geo_var]])])
+  if (length(dup_geos) > 0) {
+    rlang::abort(c("Each geography must appear at most once in `targets`.",
+                   "*" = sprintf("Duplicated values of `%s`: %s", geo_var,
+                                 paste(dup_geos, collapse = ", "))))
+  }
+
   # repeatedly call logit_shift_single() then combine results
   purrr::map2(var_names, calib_names,
               \(x, y)  logit_shift_single(ps_table = ps_table,
@@ -222,8 +229,20 @@ logit_shift_single = function(ps_table,
                   calib_var = all_of(calib_var))
 
 
+  # warn once, listing all geographies with no (or NA) target for this outcome
+  geos <- unique(ps$geography)
+  missing_geos <- setdiff(geos, calib_target$geography[!is.na(calib_target$calib_var)])
+  if (length(missing_geos) > 0) {
+    rlang::warn(c("Calibration target missing; returning logit shift = 0.",
+                  "i" = sprintf("Outcome: %s", outcome),
+                  "i" = sprintf("Geographies (%d): %s", length(missing_geos),
+                                paste(missing_geos, collapse = ", ")),
+                  "i" = "This behavior is not optimal. See https://github.com/wpmarble/mrp/issues/3"),
+                class = "calibratedMRP_missing_target")
+  }
+
   # calculate logit shift for each geography
-  shifts <- unique(ps$geography) |>
+  shifts <- geos |>
     furrr::future_map(\(g) {
 
       # subset PS table and target to this geography
@@ -231,10 +250,7 @@ logit_shift_single = function(ps_table,
       tmp_targ <- dplyr::filter(calib_target, geography == g) |> dplyr::pull(calib_var)
 
       # calculate logit shift
-      if (is.na(tmp_targ) || length(tmp_targ) == 0){
-        rlang::warn(c("Calibration target missing; returning logit shift = 0.",
-                      "i" = sprintf("Geography: %s ", g),
-                      "i" = "This behavior is not optimal. See https://github.com/wpmarble/mrp/issues/3"))
+      if (length(tmp_targ) == 0 || is.na(tmp_targ)){
         shift <- 0
       } else {
         shift <- logit_shift_internal(x = tmp_ps$pred,

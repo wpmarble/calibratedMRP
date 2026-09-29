@@ -163,7 +163,7 @@ calibrate_mrp <- function(model,
 
     # calculate logit shifts for observed variables
     shifts <- logit_shift(ps_table,
-                          outcomes = calib_vars,
+                          outcomes = all_of(calib_vars),
                           targets = targets,
                           weight = !!weight_var,
                           geography = !!geo_var)
@@ -177,7 +177,7 @@ calibrate_mrp <- function(model,
     # generate calibrated probs
     ps_table <- calibrate_preds(ps_table = ps_table,
                                 shifts = shifts,
-                                preds = outcomes,
+                                preds = all_of(outcomes),
                                 geography = !!geo_var,
                                 keep_orig = keep_uncalib)
 
@@ -228,11 +228,17 @@ calibrate_mrp <- function(model,
       ps_table_i <- cbind(ps_table_clean, ps_draw_i)
 
 
-      shifts <- logit_shift(ps_table_i,
-                            outcomes = calib_vars,
-                            targets = targets,
-                            weight = !!weight_var,
-                            geography = !!geo_var)
+      # missing targets are the same in every draw, so only warn on the first
+      shifts <- withCallingHandlers(
+        logit_shift(ps_table_i,
+                    outcomes = all_of(calib_vars),
+                    targets = targets,
+                    weight = !!weight_var,
+                    geography = !!geo_var),
+        calibratedMRP_missing_target = function(cnd) {
+          if (i > 1) invokeRestart("muffleWarning")
+        }
+      )
 
       # impute logit shifts for unobserved variables
       if (auxcalib) {
@@ -243,7 +249,7 @@ calibrate_mrp <- function(model,
       # generate calibrated probs
       ps_table_i <- calibrate_preds(ps_table = ps_table_i,
                                     shifts = shifts,
-                                    preds = outcomes,
+                                    preds = all_of(outcomes),
                                     geography = !!geo_var,
                                     keep_orig = keep_uncalib)
       res[[i]] <- ps_table_i |>
