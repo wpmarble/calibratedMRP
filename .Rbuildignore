@@ -4,3 +4,6 @@
 ^doc$
 ^Meta$
 ^README\.Rmd$
+^CLAUDE\.md$
+^claude$
+^ARCHITECTURE\.md$
